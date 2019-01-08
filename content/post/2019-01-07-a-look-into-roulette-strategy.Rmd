@@ -1,0 +1,308 @@
+---
+title: A Look into Roulette Strategy
+author: ~
+date: '2019-01-07'
+output:
+  blogdown::html_page:
+    toc: true
+slug: a-look-into-roulette-strategy
+categories: []
+tags: []
+---
+
+
+```{r, include = F, echo = F}
+knitr::opts_chunk$set(fig.width=7, fig.height=5,
+                      echo=FALSE, warning=FALSE, message = FALSE)
+```
+
+
+```{r}
+library(plotly)
+library(ggplot2)
+library(dplyr)
+library(reshape2)
+library(stringr)
+options(scipen = 999)
+```
+
+
+I recently made a trip to Las Vegas so for this post, I want to run some calculations and simulations to check a gambler's odds of winning according to different goals and situations. I'll assume every bet is made on a color (or on odd/even) and thus has a fixed $p = \frac{18}{38}$ of winning. A win doubles the initial bet.   
+
+## Disclaimer  
+
+The strategies presented in this post are calculated on a set of assumptions. In expectation, the best strategy is to not play, and every extra spin loses you money. On average, if you spin $n$ times and bet $x$ dollars each spin, you can expect a profit of: $$n(\frac{18}{38}x - \frac{20}{38}x) = -(\frac{2}{38})nx$$ 
+
+That number is negative -- you're expected to lose. Bigger bets and more spins both cause you lose more. 
+
+## Fixed Spin Gambler  
+
+First, let's consider a gambler who knows they're sure to lose if they spin forever, but has not yet decided how many  spins to play. As mentioned above, each time, he will bet on black and has $p = \frac{18}{38}$ probability of winning. First, we plot the probability that the gambler breaks even or makes a profit as a function of the number of bets he makes:  
+
+```{r define some intro functions, echo = F}
+
+theme_clean <- function() {
+  theme_bw(base_size = 11) +
+    theme(panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.grid.minor.y = element_blank(),
+          panel.background = element_rect(color = "#E1E1E1"),
+          panel.border = element_blank())
+}
+
+get_wins_needed <- function(all_bets = 1:200, break_even_ok = T) {
+  if (break_even_ok) {
+    wins_needed <- ceiling(all_bets/2)
+  } else {
+    wins_needed <- rep(NA, length(all_bets))
+    for (i in 1:length(wins_needed)) {
+      wins_needed[i] <- ifelse(all_bets[i]%%2 == 0,
+                               ceiling(all_bets[i]/2) + 1,
+                               ceiling(all_bets[i]/2))
+    }
+  }
+  return(wins_needed)
+}
+
+stopifnot(get_wins_needed(1:20) == rep(1:10, each = 2))
+stopifnot(get_wins_needed(1:10, F) == c(1,2,2,3,3,4,4,5,5,6))
+
+get_success <- function(all_bets = 1:200, break_even_ok = T) {
+  success_probs <- rep(NA, length(all_bets))
+  wins_needed <- get_wins_needed(all_bets, break_even_ok)
+  for (i in 1:length(wins_needed)) {
+    success_probs[i] <- pbinom(wins_needed[i] - 1, all_bets[i], 18/38, lower.tail = F)
+  }
+  return(success_probs)
+}
+```
+
+
+```{r}
+probs_if_break_even_ok <- get_success(all_bets = 1:200, break_even_ok = T)
+probs_if_break_even_not_ok <- get_success(all_bets = 1:200, break_even_ok = F)
+
+first_gambler_frame <- data.frame(num_bets = 1:200,
+                                  `Break Even` = probs_if_break_even_ok,
+                                  `Make Profit` = probs_if_break_even_not_ok) %>%
+  melt(id.vars = 'num_bets') %>%
+  rename(Goal = variable, prob_success = value)
+
+first_gambler_frame %>%
+  mutate(Parity = ifelse(num_bets%%2 == 0, "even", "odd")) %>%
+  ggplot(aes(x = num_bets, y = prob_success, color = Parity, shape = Goal)) +
+    geom_point(size = 2) +
+    labs(title = "Gambler's Odds on a Fixed Number of Roulette Bets",
+         x = "Number of Bets",
+         y = "Probability of Success") +
+    theme_clean()
+```
+
+The graph shows some interesting properties. If your goal is to win money (and you won't be satisfied with breaking even), then you should bet an **odd** number of times. However, if your goal is simply to avoid losing money, you should bet an **even** number of times. This is because impossible to exactly break even on an odd number of bets.  
+
+For example, if you plan to bet 49 times, you'll have $p = .355$ to make a profit. By planning to bet one more time and making 50 bets, your chance to break even goes up to $p = .41$ while your chance to make a profit goes down to about $p = .30$.  
+
+## Fixed Spins and Fixed Goal    
+
+Of course, you can't win if you don't play. Let's say now that our gambler only cares about maximizing the chances of going + n on bets. This means if the bet size is 10 dollars, n = 5 means the goal is to make 50 dollars profit. The gambler doesn't want to risk losing money forever, and so is going to pick a fixed number of bets to make in advance. How many times should he play?  
+
+First, notice that the parity of your number of bets should always match the parity of your n. Why? 
+
+Suppose n = 10 and you're deciding between betting 17 and 18 times:     
+
+| Number of bets| Needed Wins | Bets Ahead | Probability |  
+|---------------|-------------|------------|-------------|  
+|17             | 13          | +9         |No Goal      |  
+|17             | 14          | +11        |.0034        |  
+|18             | 14          | +10        |.0086        |  
+
+You need the same number of wins on 17 or 18 bets to be at least + 10. It's easy to win on 14 out of 18 spins than on 14 out of 17 spins.     
+In general, if you play $b$ bets and $b$ is odd, you can spin $b + 1$ times without needing an extra win.  
+
+However, if we have an odd goal: n = 11    
+
+| Number of bets| Wins | Bets Ahead | Probability |  
+|---------------|------|------------|-------------|  
+|16             | 13   | +10        | No Goal     |  
+|16             | 14   | +12        | .00107      |  
+|17             | 14   | +11        | .00341      |  
+|18             | 14   | +10        | No Goal     |  
+|18             | 15   | +11        | .00192      |  
+
+14 wins out 17 spins is easier than 14 wins in 16 spins or 15 wins in 18 spins.  
+
+We can visualize this with a graph for $n \in \{10, 15\}$:   
+
+```{r}
+wins_needed_for_plus_n <- function(bets = 10:200, n = 10) {
+  # You can't go +n if you don't make at least n bets
+  stopifnot(min(bets) >= n)
+  if (n %% 2 == 0) { # if n is even
+    ceiling(bets/2) + n/2
+  } else { # n must be odd
+    ceiling(bets/2 + n/2)
+  }
+}
+stopifnot(wins_needed_for_plus_n(bets = c(10, 11, 12, 13, 14, 15, 16)) == c(10, 11, 11, 12, 12, 13, 13)) 
+stopifnot(wins_needed_for_plus_n(bets = c(11, 12, 13, 14, 15, 16, 17), n = 11) == c(11, 12, 12, 13, 13, 14, 14))
+
+
+prob_of_plus_n <- function(bets = 10:200, n = 10) {
+  wins_needed <- wins_needed_for_plus_n(bets, n)
+  success_probs <- rep(NA, length(bets))
+  for (i in 1:length(success_probs)) {
+    success_probs[i] <- pbinom(wins_needed[i] - 1, bets[i], 18/38, lower.tail = F)
+  }
+  return(success_probs)
+}
+stopifnot(prob_of_plus_n(10, 10) == (18/38)**10)
+```
+
+```{r}
+go_plus_10 <- prob_of_plus_n(bets = 10:500, n = 10)
+go_plus_15 <- prob_of_plus_n(bets = 15:500, n = 15)
+
+second_gambler_frame <- data.frame(num_bets = 10:500,
+                                   `Plus_10` = go_plus_10,
+                                   `Plus_15` = c(rep(0, 5), go_plus_15)) %>%
+  melt(id.vars = "num_bets") %>%
+  rename(Goal = variable,
+         prob_success = value) %>%
+  mutate(Parity = ifelse(num_bets %% 2 == 0, "even", "odd"))
+
+second_gambler_frame %>%
+  ggplot(aes(x = num_bets, y = prob_success, color = Parity, shape = Goal)) +
+    geom_point(size = 2) +
+    labs(title = "Bet the Same Parity as your Goal",
+         x = "Number of Bets",
+         y = "Probability of Success") + 
+    theme_clean()
+  
+```
+
+Notice that for the circles representing a + 10 goal, even numbered bets are better than odd.
+
+For the triangles representing a + 11 goal, odd numbered bets are better than even.
+
+For the next graph, I'll use this strategy and only include numbers of bets with the correct parity.  
+
+Let's plot the probability of success for different numbers of bets for $n \in \{5, 10, 25, 50\}$.  
+
+```{r}
+get_prob_plus_n_frame <- function(bets, n) {
+  return(data.frame(num_bets = bets,
+                    Goal = paste("Plus", n),
+                    prob_success = prob_of_plus_n(bets, n)))
+}
+
+third_gambler_frame <- get_prob_plus_n_frame(seq(5, 999, 2), n = 5) %>%
+  bind_rows(get_prob_plus_n_frame(seq(10, 1000, 2), n = 10)) %>%
+  bind_rows(get_prob_plus_n_frame(seq(25, 999, 2), n = 25)) %>%
+  bind_rows(get_prob_plus_n_frame(seq(50, 1000, 2), n = 50))
+
+# go_plus_5 <- prob_of_plus_n(bets= 5:1000, n = 5)
+# go_plus_10 <- prob_of_plus_n(bets = 10:1000, n = 10)
+# go_plus_25 <- prob_of_plus_n(bets = 25:1000, n = 25)
+# go_plus_50 <- prob_of_plus_n(bets = 50:1000, n = 50)
+# 
+# third_gambler_frame <- data.frame(num_bets = 5:1000,
+#                                   `Plus_5` = go_plus_5,
+#                                   `Plus_10` = c(rep(0, 5), go_plus_10),
+#                                   `Plus_25` = c(rep(0, 20), go_plus_25),
+#                                   `Plus_50` = c(rep(0, 45),go_plus_50)) %>%
+#   melt(id.vars = "num_bets") %>%
+#   rename(Goal = variable,
+#          prob_success = value) %>%
+
+third_gambler_frame %>%
+  ggplot(aes(x = num_bets, y = prob_success, color = Goal)) +
+    geom_point(size = 1) +
+    labs(title = "Probability of Reaching a + N Goal",
+         x = "Number of Bets",
+         y = "Probability of Success") +
+    theme_clean()
+```
+
+So it seems that a gambler has virtually no chance of ever going + 50. It *is* possible to achieve a +25 goal with probability = .0122. Unfortunately, this would take 455 bets. Using this strategy, you'd have $\mathbb{E}(\textrm{net wins}) = 455* (\frac{18}{38} - \frac{20}{38}) = -24$ and $\mathbb{P}(\textrm{break even}) = .13$. You're expected to lose about as much as your stretch goal and you have about an 87% chance of losing money.  
+
+To finish this section, let's plot the optimal number of bets and maximum chance of success against different goals.  
+
+```{r}
+get_reasonable_bets <- function(n) {
+  if(n%%2 == 0) {
+    seq(n, n*50, 2)
+  } else {
+    seq(n, n*50 + 1, 2)
+  }
+}
+
+return_only_best_for_plus_n <- function(n) {
+  result_frame <- get_prob_plus_n_frame(bets = get_reasonable_bets(n), n) %>%
+   filter(prob_success == max(prob_success))
+  return(result_frame)
+}
+fourth_gambler_frame <- return_only_best_for_plus_n(1)
+for (goal in 2:100) {
+  fourth_gambler_frame <- fourth_gambler_frame %>%
+    bind_rows(return_only_best_for_plus_n(goal))
+}
+
+fourth_gambler_frame <- fourth_gambler_frame %>%
+  group_by(Goal) %>%
+  filter(num_bets == min(num_bets)) %>%
+  ungroup()
+  
+
+fourth_gambler_frame %>%
+  mutate(Goal = as.numeric(str_extract(Goal, "\\d+")),
+         Ratio = num_bets/Goal) %>%
+  ggplot(aes(x = Goal, y = num_bets)) +
+    geom_point() +
+    labs(title = "Optimal Number of Bets to Reach a + N Goal",
+         y = "Number of Bets") + 
+    theme_clean()
+```
+
+This converges to approximately a line, where the optimal number of bets is a around 18 times your goal. If you'd like to go +10, you should bet approximately 180 times. 
+
+You can get away with a smaller bet to goal ratio if you choose a low goal -- you should only bet once to reach + 1 (ratio = 1) and 18 times to reach + 2 (ratio = 9). 
+
+Here are the probabilities of success for each goal, given that you choose the best number of bets.    
+
+```{r}
+fourth_gambler_frame %>%
+  mutate(Goal = as.numeric(str_extract(Goal, "\\d+")),
+         Ratio = num_bets/Goal) %>%
+  ggplot(aes(x = Goal, y = prob_success)) +
+    geom_point() +
+    labs(title = "Best Case Probability of Reaching a + n Goal",
+         y = "Probability of Success") + 
+    theme_clean()
+```
+
+As we saw before, the chance of reaching a large goal is extremely low. 
+
+## House Advantage  
+
+People often say that the house always wins. They *could* lose, but it's very unlikely. In fact, the casinos have such a small chance to lose that it's hard to even make sense of the probabilities. I've converted them all to years -- that is, how many years would the casino expect to wait before they lose on one single day. Surprisingly, there only needs to be 5,660 bets per day for the waiting time to be the age of casinos in Vegas (70 years).   
+
+The casino's chance to lose converges pretty quickly to 0. If we move the number of bets per dday from 5,600 to 10,000, we move the expected waiting time before the casino loses from 70 years to 37,000 years. 
+
+The waiting time before a day where the house loses is below:  
+
+As always, I'm assuming that every bet is a roulette spin and that all gamblers bet the same amount.  
+
+```{r}
+house_advantage <- data.frame("Num_Bets" = seq(100, 10000, 2), 
+           "Waiting_Years" = round((get_success(all_bets = seq(100, 10000, 2))**-1)/365.25), 2) %>%
+  ggplot(aes(x = Num_Bets, y = Waiting_Years)) +
+    geom_point() +
+    labs(title = "How Likely is the Casino to Lose?",
+         x = "Number of Bets per Day",
+         y = "Expected Years before Casino's First Loss") +
+    theme_clean() 
+
+ggplotly(house_advantage) %>% layout(margin=list(l = 100), yaxis=list(tickprefix=" "))
+```
+
+
