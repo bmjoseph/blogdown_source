@@ -192,7 +192,7 @@ Let's put these functions to use on a real dataset. The following data comes fro
 
 ```{r, import flight data, warning = FALSE, message=F}
 # Import using readr
-flights <- read_csv("../../static/data/flight_delays.csv", col_types = c("cnnnnnnn"))
+flights <- read_csv("../../static/data/date_guide/flight_delays.csv", col_types = c("cnnnnnnn"))
 # Let's examine a slice of 5 rows uniformly distributed through the data
 slice(flights, seq(1, length(flights$FL_DATE), length(flights$FL_DATE)/5)) 
 ```
