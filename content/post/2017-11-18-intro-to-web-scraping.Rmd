@@ -75,7 +75,7 @@ With that said, I do highly recommend using Google Chrome. Chrome will make the 
 
 <br>  
 
-![](../../static/images/web_scrape_guide/img1.png)
+![](/images/web_scrape_guide/img1.png)
 
 <br>
 
@@ -83,7 +83,7 @@ Take special notice of the part that I added a red circle to in upper center par
 
 <br>
 
-![](../../static/images/web_scrape_guide/highlighted_tag.png)
+![](/images/web_scrape_guide/highlighted_tag.png)
 
 <br>
 
