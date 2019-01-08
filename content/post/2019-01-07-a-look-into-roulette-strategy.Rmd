@@ -27,13 +27,13 @@ options(scipen = 999)
 ```
 
 
-I recently made a trip to Las Vegas so for this post, I want to run some calculations and simulations to check a gambler's odds of winning according to different goals and situations. I'll assume every bet is made on a color (or on odd/even) and thus has a fixed $p = \frac{18}{38}$ of winning. A win doubles the initial bet.   
+I recently made a trip to Las Vegas, so for this post, I want to run some calculations and simulations to check a gambler's odds of winning according to different goals and situations. I'll assume every bet is made on a color (or on odd/even) and thus has a fixed $p = \frac{18}{38}$ of winning. A win doubles the initial bet.   
 
 ## Disclaimer  
 
 The strategies presented in this post are calculated on a set of assumptions. In expectation, the best strategy is to not play, and every extra spin loses you money. On average, if you spin $n$ times and bet $x$ dollars each spin, you can expect a profit of: $$n(\frac{18}{38}x - \frac{20}{38}x) = -(\frac{2}{38})nx$$ 
 
-That number is negative -- you're expected to lose. Bigger bets and more spins both cause you lose more. 
+That number is negative -- you're expected to lose. Bigger bets and more spins both cause you to lose more. 
 
 ## Fixed Spin Gambler  
 
@@ -286,7 +286,7 @@ As we saw before, the chance of reaching a large goal is extremely low.
 
 People often say that the house always wins. They *could* lose, but it's very unlikely. In fact, the casinos have such a small chance to lose that it's hard to even make sense of the probabilities. I've converted them all to years -- that is, how many years would the casino expect to wait before they lose on one single day. Surprisingly, there only needs to be 5,660 bets per day for the waiting time to be the age of casinos in Vegas (70 years).   
 
-The casino's chance to lose converges pretty quickly to 0. If we move the number of bets per dday from 5,600 to 10,000, we move the expected waiting time before the casino loses from 70 years to 37,000 years. 
+The casino's chance to lose converges pretty quickly to 0. If we move the number of bets per day from 5,600 to 10,000, we move the expected waiting time before the casino loses from 70 years to 37,000 years. 
 
 The waiting time before a day where the house loses is below:  
 
