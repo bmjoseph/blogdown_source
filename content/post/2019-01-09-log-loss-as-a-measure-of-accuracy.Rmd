@@ -1,0 +1,184 @@
+---
+title: Log Loss as a Measure of Accuracy
+author: "Bailey Joseph"
+date: '2019-01-09'
+slug: log-loss-as-a-measure-of-accuracy
+categories: []
+tags: []
+---
+
+## Motivation  
+
+Evaluating a binary classifier can be difficult. Suppose you have a model which takes in some data and predicts whether a certain team will beat their opponent. Let's say that specifically, it returns the probability that the home team wins. How do you know if your model is doing a good job? 
+
+What about just a standard accuracy? At first glance, it's nice to say something like: "My model predicts the correct outcome 80% of the time." You could easily get this by rounding the predictions and guessing win if $p \ge .5$ and loss if $p \lt .5$.  
+
+The problem with this is that it you lose a lot of the information in the output. There should be a difference between being wrong when you guess $p = .55$ and being wrong when you guess $p = .98$.  
+
+I think you should still report the accuracy -- it's easy for people to understand and works as a rough summary. But I'd like to introduce another possile scoring method -- log loss.  
+
+## Background  
+
+I won't go into the details of how log loss is defined mathematically. You can read about it [here](https://en.wikipedia.org/wiki/Cross_entropy#Cross-entropy_error_function_and_logistic_regression) if you'd like.  
+
+For now, let's just assume we have an implementation:    
+
+```{r, eval = F, echo = T}
+log_loss_binary <- function(acutal, predicted, eps = 1e-15) {
+  # Descritpion:   Evaluate a classifier by returning log loss
+  # Inputs: 
+  #   - actual:    vector of 1s and 0s. These should be the true results
+  #   - predicted: vector of predicted probabilities of success (1)
+  #   - eps:       numeric value, ensures loss is never infinite
+  # Returns: 
+  #   - log_loss:  numeric value, represents classifier error
+  ...
+}
+```
+
+## Log Loss Prefers Conservative Predictions    
+
+Log loss works by penalizing *all* of the predictions (unless you predict 100% or 0% and get it right). As long as you don't predict 100% or 0%, the prediction will always be off from the real, binary, label. It makes snese as an evaluator because the penalty is larger the farther off your prediction turns out to be.  
+
+What does this mean on a sample of 1? We can visualize it below:  
+
+```{r, echo = F, message = F, warning = F}
+
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(plotly)
+
+theme_clean <- function () { 
+    theme_bw(base_size = 11) +
+   theme(panel.grid.major.x=element_blank(), panel.grid.minor.x = element_blank(),
+           panel.grid.minor.y = element_blank(), panel.background = element_rect(colour = "#E1E1E1"),
+           panel.border = element_blank())
+}
+
+log_loss_binary <- function(actual, predicted, eps = 1e-15) {
+  predicted = pmin(pmax(predicted, eps), 1 - eps)
+  log_loss = -1*(sum(actual*log(predicted) + (1 - actual) * log(1 - predicted))) / length(actual)
+  return(log_loss)
+}
+
+#log_loss_binary(c(0, 1, 1, 0), c(.1,.9,.8,.35))
+
+#log_loss_binary(rep(c(0, 0, 1), 10), rep(c(.33, .33, .33), 10))
+```
+
+```{r, echo = F, message = F, warning = F}
+log_loss_test_frame <- data.frame(Result = rep(c(1, 0), each = 99),
+                                  predicted = rep(seq(.01, .99, .01), 2)) %>%
+  group_by(Result, predicted) %>%
+  mutate(log_loss = log_loss_binary(Result, predicted)) %>%
+  ungroup() %>%
+  mutate(Result = factor(Result, labels = c("Lose", "Win")))
+
+single_val_ll <- log_loss_test_frame %>%
+  ggplot(aes(x = predicted, y = log_loss, color = Result)) + 
+    geom_point(aes(text = paste0("Predicted: ", predicted, "\n",
+                                 "Log Loss: ", round(log_loss, 3)))) + 
+    labs(title = "Log Loss for a Single Prediction",
+         x = "Predicted Probability of Success",
+         y = "Log Loss") +
+    theme_clean()
+
+ggplotly(single_val_ll, tooltip = "text")
+```
+
+As we should hope, if the result is a win, then the log loss is low for predictions near 1. The reverse is also true. 
+
+We've also found the first subtlety of log loss -- there are significant diminishing returns to your classfier being more confident. If your team is *going* to win the game, of course it's better if the classifier predicts .95 (log loss $\approx .05$) rather than .75 (log loss $\approx .29$), but predicting .95 and being wrong is disastrous (log loss $\approx 3$).  
+
+How much does this affect things? Presumably, if the team has a 95% chance to win every game, then over the long run predicting .95 for every game should be better than predicting 75%, even though there'll be a high penalty on the games we get unlucky. Let's check this:   
+
+```{r, echo=F}
+# Log Loss when a team wins 95% of games and we predict 95% for each game
+print(paste("Log Loss for predicting 95%:",
+            round(log_loss_binary(actual = rep(c(1, 0), times = c(9500, 500)),
+                predicted = rep(.95, 10000)), 3)))
+# Log loss when a team wins 95% of games and we predict 75% for each game
+print(paste("Log Loss for predicting 75%:",
+            round(log_loss_binary(actual = rep(c(1, 0), times = c(9500, 500)),
+                predicted = rep(.75, 10000)), 3)))
+```
+
+Okay, that's good. But what if the real win probability is somewhere between .75 and .95? How high does the win probability have to be for guessing 95% for every game to be better than guessing 75%?  
+
+```{r, warning = F, echo = F, message = F}
+win_probs <- seq(.75, .95, .01)
+num_wins <- 10000*win_probs
+num_losses <- 10000 - num_wins
+second_ll_frame <- data.frame(win_prob = win_probs,
+                              num_wins = num_wins,
+                              num_losses = num_losses) %>%
+  group_by(win_prob) %>%
+  mutate(`75%` = log_loss_binary(actual = rep(c(1,0), times = c(num_wins, num_losses)),
+                                       predicted = rep(.75, 10000)),
+         `95%` = log_loss_binary(actual = rep(c(1,0), times = c(num_wins, num_losses)),
+                                       predicted = rep(.95, 10000))) %>%
+  ungroup() %>%
+  select(- num_wins, - num_losses)
+
+ll_conserve <- second_ll_frame %>%
+  melt(id.vars = "win_prob") %>%
+  rename(Prediction = variable,
+         Log_Loss = value) %>%
+  ggplot(aes(x = win_prob, y = Log_Loss, color = Prediction)) +
+    geom_point(aes(text = paste0("Win Prob: ", win_prob, "<br>",
+                                  "Log Loss: ", round(Log_Loss, 3)))) +
+    labs(title = "Log Loss Favors Conservative Predictions",
+         x = "Real Win Probability",
+         y = "Log Loss") +
+    theme_clean()
+
+ggplotly(ll_conserve, tooltip = "text")
+  
+```
+
+The 95% predictions only start to be better than the 75% predictions when the real win probability is 88%.  
+
+## Log Loss Doesn't Care About Bias  
+
+There's one more thing that you should know before you decide to use log loss on your own projects. Log loss doesn't care whether your predictions are biased or unbiased.  
+
+If you predict 50% on every entry, the actual distribution of results doesn't affect your log loss at all:  
+
+```{r}
+log_loss_binary(actual = c(1, 0), predicted = c(.5, .5))
+log_loss_binary(actual = c(1, 1), predicted = c(.5, .5))
+log_loss_binary(actual = c(0, 0), predicted = c(.5, .5))
+```
+
+All of these numbers are the same! This is because log loss looks at one game at a time. Regardless of the outcome of the game, your prediction is off by 50% because $\left | .5 - 0 \right | = \left | .5 - 1 \right | = .5$.  
+
+This property takes some getting used to, but it can be either beneficial or harmful. Suppose your classifier geusses 51% on every game:    
+
+| Real Win Probability | Accuracy | Log Loss |
+|:--------------------:|:--------:|:--------:|
+|0                     | 0        | .7133    |
+|.5                    |.5        | .6933    |
+|1                     |1         | .6733    |
+
+The plus side is that the log loss is more stable than accuracy with respect to the real win probability. The classifier has made only very weak predictions, so it shouldn't be praised with 100% accuracy if it happens to be correct.  
+
+On the other hand, notice that the log loss is actually *lower* if the real win probability is 100% rather than 50%. If the real win probability is 100%, then the classifier has an error of 49% every time. If the real win probability is 50%, then the classifier has an error of either 49% or 51%.  
+
+For this reason, I highly recommend looking at your model's bias alongside its log loss. One simple way of checking the bias is to add up all the predictions and compare that number to the sum of the actual results. If we assume there were 10 games in the above table, we have:  
+
+| Real Win Probability | Accuracy | Log Loss | Actual Wins | Predicted Wins | Bias |
+|:--------------------:|:--------:|:--------:|:-----------:|:--------------:|:----:|
+|0                     | 0        | .7133    |0            | 5.1            | -5.1 |
+|.5                    |.5        | .6933    |5            | 5.1            | -0.1 |
+|1                     |1         | .6733    |10           | 5.1            | +4.9 |
+
+The combination of accuracy, loss and bias can give us a good idea about how well our classifier is working.  
+
+```{r, eval = F, echo = F}
+# calculations for above chart
+log_loss_binary(actual = c(0, 0), predicted = c(.51, .51))
+log_loss_binary(actual = c(1, 0), predicted = c(.51, .51))
+log_loss_binary(actual = c(1, 1), predicted = c(.51, .51))
+```
+

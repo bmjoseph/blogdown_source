@@ -1,6 +1,9 @@
 ---
 title: "About"
-date: "2016-05-05T21:48:51-07:00"
+date: "2019-01-10"
 ---
 
-This is a "hello world" example website for the [**blogdown**](https://github.com/rstudio/blogdown) package. The theme was forked from [@jrutheiser/hugo-lithium-theme](https://github.com/jrutheiser/hugo-lithium-theme) and modified by [Yihui Xie](https://github.com/yihui/hugo-lithium).
+## Bailey Joseph's Stats Blog  
+
+
+The source code for all articles and the data they need to run can be found right [here (on my Github)](https://github.com/bmjoseph/blogdown_source).  

@@ -1,0 +1,151 @@
+---
+title: An Interesting Expectation Question
+author: "Bailey Joseph"
+date: '2018-12-05'
+slug: an-interesting-expectation-question
+categories: []
+tags: []
+---
+### Setup  
+
+My friend recently encountered an interesting interview question. Unfortunately, he couldn't answer it off the top of his head during the interview. We talked about it later -- I couldn't answer it either. The problem intrigued me, so I've passed it around but thus far haven't found anyone who can give an answer without sitting down and thinking privately.
+
+Anyway, here's the problem:  
+
+Suppose you're going to play a game where you're going to roll a fair die with sides $\in \{1, 2, ..., 100\}$. You'll win money according to the side you roll. For example, if you roll a 13, you'd win 13 dollars. However, if you don't like your roll, you can also choose to pay an extra dollar to roll again. This option remains open to you forever, so you can keep paying $1 per roll until you're satisfied with the outcome.  
+
+How much is the **first** roll worth? That is, what is the expected profit from this game? Consider that without this question, the first roll would be free.  
+
+Before reading on, think about how much you would actually pay to play this game. If you never choose roll again, you'd get an average of 50.5 dollars.  
+
+### Solution  
+
+The key observation for this problem is that there is only one real decision for the player to make: a stopping rule. Before the game starts, the player should choose a value that will be their minimum acceptable revenue, and keep rolling until they reach that number or better. 
+
+This works because the game is stateless -- if re rolling on a 34 is a good idea after the first roll, it must also be a good idea after the second roll, since the lost dollar is already spent.  
+
+Solving for the expected profit then:  
+
+Let $x$ be the minimum acceptable stopping point, $R$ be the revenue, $C$ be the cost of the extra rolls, and $P$ be the profit.  
+
+You're guaranteed to get between $x$ and 100 dollars revenue, but since each roll is random and fair, you're equally likely to get any value between $x$ and 100.   
+$R \sim \operatorname{U} [x, 100 ]$    
+You'll have to pay for each roll, and the number of rolls you'll need before reaching one that's satisfactory follows a geometric distribution.    
+
+$C \sim \operatorname{G} \left({\frac{101-x}{100}}\right)$      
+
+Of course, $P = R - C$.   
+For right now, we only care about the *expected* profit, and $\mathbb{E}(P) = \mathbb{E}(R) - \mathbb{E}(C)$.    
+
+$\mathbb{E}(P) = \frac{100 + x}{2} - \frac{100}{101-x}$    
+The situation is actually discrete, but for now assume it's continuous and take a derivative.  
+
+$\frac{\mathrm{d}\mathbb{E}(P)}{\mathrm{d}x} = \frac{1}{2} - \frac{100}{(101 - x)^2}$    
+Notice that the derivative is completely continuous and smooth except for when $x = 101$. $101$ isn't a valid stopping rule, so we can ignore that issue.  
+To solve for the optimum, set the derivative equal to 0:  
+
+$\frac{1}{2} = \frac{100}{(101 - x)^2}$  
+$x = 101 - 10\sqrt{2}$  
+$x \approx 86.85$    
+
+You can use the first derivate test or some other method to make sure, but this value for $x$ turns out to be a maximum. Since we have to choose a whole number, 87 is the best we can do (you should check 86 and 87, but 87 is better).  
+
+$\mathbb{E}(P) = \frac{100 + 87}{2} - \frac{100}{101-87}$  
+$\mathbb{E}(P) \approx 93.5 - 7.14$   
+$\mathbb{E}(P) \approx 86.35$.     
+
+This is much higher than I would have imagined. I knew that the answer had to be at least 50.5, becuase the option to roll again can't *hurt* you, but 86 dollars?  
+
+
+### Simulation  
+
+I still couldn't completely accept that playing this game is really worth 86 dollars. People are risk averse, so even if that would cause me to break even in expectation, I probably only want to play if I'm expected to win. 
+
+I decided to simulate the game with different stopping rules and see what happens over many repitions of the game. 
+
+First, I just checked to see if I could confirm that 87 is the best stopping rule and that the expected profit is about 86.35.  
+
+```{r, echo = F, message = F, warning = F}
+library(dplyr)
+library(ggplot2)
+library(plotly)
+
+theme_clean <- function () { 
+    theme_bw(base_size = 11) +
+   theme(panel.grid.major.x=element_blank(), panel.grid.minor.x = element_blank(),
+           panel.grid.minor.y = element_blank(), panel.background = element_rect(colour = "#E1E1E1"),
+           panel.border = element_blank())
+}
+
+get_profit <- function(min_acceptable, curr_profit = 0) {
+  val <- sample(100, 1)
+  if (val >= min_acceptable) {
+    return(curr_profit + val)
+  } else {
+    return(get_profit(min_acceptable, curr_profit - 1))
+  }
+}
+stopping_rules <- 1:100
+mean_profits <- rep(NA, length(stopping_rules))
+set.seed(13)
+for (i in 1:length(stopping_rules)) {
+  mean_profits[i] <- mean(replicate(1000, get_profit(stopping_rules[i])))
+}
+
+
+initial_plot <- (data.frame(stopping_rule = 1:100,
+            mean_profit =mean_profits)) %>%
+  ggplot(., aes(x = stopping_rule, y = mean_profit)) +
+    geom_point() +
+    geom_line() +
+    labs(title = "Simulation of Different Stopping Rules",
+         x = "Stopping Rule",
+         y = "Mean Profit") + 
+    theme_clean()
+
+ggplotly(initial_plot)
+```
+
+I only ran 1000 simulations for each stopping rule, but it converged quickly enough. You can mouse over the above graph and see individula results for yourself.  
+
+However, I was also interested in the expected profit if the player gets "unlucky". To define unlucky, I plotted the 5^th percentile profits from each stopping rule (if being 5^th percentile unlucky is good enough to risk a false positive in a statistical test, it's good enough for me):    
+
+```{r, echo = F, message = F, warning = F}
+fifth_quantile <- rep(NA, length(stopping_rules))
+set.seed(13)
+for (i in 1:length(stopping_rules)) {
+  fifth_quantile[i] <- quantile(replicate(1500, get_profit(stopping_rules[i])), .05)
+}
+unlucky_plot <- (data.frame(stopping_rule = 1:100,
+            fifth_quantile = fifth_quantile)) %>%
+  ggplot(., aes(x = stopping_rule, y = fifth_quantile)) +
+    geom_point() +
+    geom_line() +
+    labs(title = "Unlucky Simulation",
+         x = "Stopping Rule",
+         y = "Mean Profit") + 
+    theme_clean()
+
+ggplotly(unlucky_plot)
+```
+
+87 still seems to be the best choice for a stopping rule (down to simulation uncertaintly at least.) Even if you think you'll get unlucky, you're still expected to make about 75 dollars from the game.  
+
+Finally, I'll plot the quantiles for the profit assuming that we take 87 for granted as the best stopping rule. This can help you find your own maximum willingness to pay -- just look for whatever y value matches up to your luck on the x axis. Farther to the right on the axis means luckier. For example, if you think you'll be luckier than 90% of people, then you could expect to make 96 dollars profit with the 87 stopping rule.  
+
+```{r, echo = F, warning = F, message= F}
+set.seed(13)
+simmed_vals <- replicate(10000, get_profit(min_acceptable = 87))
+all_luck_plot <- data.frame(luck_quantile = seq(.01, 1, .01),
+           profit = quantile(simmed_vals, seq(.01, 1, .01))) %>%
+  ggplot(., aes(x = luck_quantile, y = profit)) +
+    geom_point() +
+    geom_line() +
+    labs(title = "Optimal Profit Quantiles",
+         x = "Luck Quantile",
+         y = "Profit") + 
+    theme_clean()
+
+ggplotly(all_luck_plot)
+```
+

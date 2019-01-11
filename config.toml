@@ -1,5 +1,6 @@
 baseurl = "https://bmjoseph.github.io/"
 languageCode = "en-us"
+author = "Bailey Joseph"
 title = "Blog_Name"
 theme = "hugo-lithium"
 googleAnalytics = ""
