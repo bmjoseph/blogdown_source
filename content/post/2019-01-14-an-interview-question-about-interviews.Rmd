@@ -315,6 +315,8 @@ full_interview_frame %>%
     geom_line() + 
     theme_void() + 
     theme(legend.position = "none")
+
+#ggsave("../../themes/hugo-lithium/static/images/logo2.png", height = 1, width = 1, units= "in", dpi = 440)
 ```
 
 
