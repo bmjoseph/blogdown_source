@@ -1,0 +1,352 @@
+---
+title: An Interview Question About Interviews
+author: ~
+date: '2019-01-14'
+slug: an-interview-question-about-interviews
+output:
+  blogdown::html_page:
+    toc: true
+categories: []
+tags: []
+---
+
+## Setup
+
+I heard of another interesting interview question -- this time about interviews.  
+
+The setup has a few parts:  
+
+1) A company has set up 100 interviews for a single role. After each interview, the company will know the relative rank of the candidate -- how the candidate stacks up against all candidates seen before. For example, if the 56<sup>th</sup> and 33<sup>rd</sup> candidates are the first to interview (and interivew in that order), the company would only know that the second candidate is the best seen so far. The candidate ranks 1 through 100 are in a random order.  
+
+2) The twist is that the company has to decide whether to hire each candidate right at the end of their interview. If they pass on someone to wait for a better option, they can never go back.  
+
+3) The company *only* cares about getting the best candidate. Assume that there's no difference between getting the second best candidate and the worst candidate.  
+
+What should the company do to maximize their chances of hiring the best candidate?  
+
+I think the original interview question was intended as a logic test instead of a math test. The solution is to interview a certain number of candidates with no chance of hiring. Then hire the first candidate you find that's better than everyone you've seen so far.  
+
+I was more interested in the math behind it -- how many candidates should we use for the initial phase and what probability do we really have to get the best candidate.  
+
+Thinking about it informally, there's a tradeoff we'll have to consider. The more people we use in the initial phase, the higher chance we throw away the best candidate and give us no chance of success. But the fewer people we use in the initial phase, the higher chance we'll end up hiring someone who isn't number 1.  
+
+
+## Simulation  
+
+As usual when I start to solve a problem, I like to try to simulate it first. This helps me figure out how the whole situation works and usually makes the math process easier. It also serves as a built in validation for the math. The math proves the simulation and the simulation makes sure there are no errors in the math.  
+
+
+```{r setup, echo=F, message=F, warning=F}
+library(ggplot2)
+library(dplyr)
+library(reshape2)
+theme_clean <- function () { 
+    theme_bw(base_size = 11) +
+   theme(panel.grid.major.x=element_blank(), panel.grid.minor.x = element_blank(),
+           panel.grid.minor.y = element_blank(), panel.background = element_rect(colour = "#E1E1E1"),
+           panel.border = element_blank())
+}
+```
+
+Let's define the function:  
+
+```{r}
+simulate_one_hiring <- function(n, p, verbose = F) {
+  # Return T if we hire #1, F otherwise
+  # Inputs:
+  #   - n: Total number of candidates
+  #   - p: Number of candidates initially thrown away
+  # Returns:
+  #    - Boolean, whether the process succeeds
+  
+  # Rank the candidates randomly 1 through 100
+  ranks <- sample(1:100)
+  # if the best candidate gets thrown out, return false
+  if (which(ranks == 1) <= p) {
+    if (verbose) {
+      print("Threw away the best candidate.")
+    }
+    return(FALSE)
+  } else {
+    # This is the candidate to beat before hiring
+    best_thrown_out <- min(ranks[1:p])
+    # This is the index of the person who gets hired
+    first_selected_position <- min(which(ranks < best_thrown_out))
+    # This is the rank of the person who gets hired
+    selected_employee <- ranks[first_selected_position]
+    if (verbose) {
+      print(paste("Best Thrown Out:",best_thrown_out))
+      print(paste("First Selected Positiont:",first_selected_position))
+      print(paste("Selected Employee:",selected_employee))
+    }
+    return(selected_employee == 1)
+  }
+}
+```
+
+And let's see a few runs and what can happen:  
+
+If we use a small number of test subjects:  
+```{r}
+set.seed(1)
+simulate_one_hiring(100, 5, verbose = T)
+```
+There's a high chance that we won't see a very good candidate in the test phase, then we'll select a non optimal candidate.  
+
+If we use a large number of test subjects:  
+```{r}
+set.seed(2)
+simulate_one_hiring(100, 95, verbose = T)
+```
+
+There's a high chance that we'll throw away the number one candidate.  
+
+If we choose a moderate number, we can get the best candidate:  
+
+```{r}
+set.seed(3)
+simulate_one_hiring(100, 30, verbose = T)
+```
+
+(Note of course that with different random seeds we could get any result with any of those code chunks.)  
+
+Let's see how the emprical probability of success changes with each choice of p. To keep things running quickly, I'll just do 1000 simulations for each choice. The point of this simulation is to understand and validate, not to get precise estimates. You can find full code on my github, but I'll just display the results below:  
+
+
+```{r, echo = F}
+simulate_many_hirings <- function(n, p, num_times) {
+  return(mean(replicate(num_times, simulate_one_hiring(n, p))))
+}
+
+optimize_candidate_pool_sim <- function(n, num_times, random_seed = 13) {
+  set.seed(random_seed)
+  choices_of_p <- 1:(n-1)
+  chances_of_success <- rep(NA, length(choices_of_p))
+
+  for (p_iter in choices_of_p) {
+  chances_of_success[p_iter] <- simulate_many_hirings(n, p_iter, num_times)
+  }
+  
+  result_frame <- data.frame(num_candidates = rep(n, n-1),
+                                    p_choice = choices_of_p,
+                                    prob_success = chances_of_success)
+  
+  return(result_frame)
+  
+}
+
+simmed_100_size <- optimize_candidate_pool_sim(100, 1000)
+
+simmed_100_size %>%
+  ggplot(aes(x = p_choice, y = prob_success)) +
+    geom_point() + 
+    labs(title = "Chance of Hiring Number 1 Candidate",
+         x = "Initial Candidates Tossed",
+         y = "Estimated Probability of Success") +
+    theme_clean()
+```
+
+The tradeoff we talked about a bit ago is coming across pretty clearly, and it seems that somewhere in the 30s is best.  
+
+Let's get to the math.  
+
+## Solving Mathematically  
+
+Let $n$ be the total number of candidates (assumed to be 100).  
+Let $p$ be the total number of candidates iniitally thrown away.  
+Let $k$ be the best candidate that gets initially thrown away.  
+
+We're going to set everything up conditionally. First, we need to conidition on not throwing away the number one option:  
+
+$$\mathbb{P}(\textrm{Success}) = \mathbb{P}(\textrm{Success | Didn't throw away best})\mathbb{P}(\textrm{Don't throw away best})$$
+
+If we didn't throw away the best candidate, then there's a best candidate that we didn't throw away that isn't number 1.  
+
+$$\mathbb{P}(\textrm{Success | Didn't throw away best}) = \sum_{\textrm{all k}}(\mathbb{P}(\textrm{Success | Best tossed = k})\mathbb{P}(\textrm{Best tossed = k}))$$
+
+We can calculate the chance that the best tossed is k:  
+$$\mathbb{P}(\textrm{Best tossed = k}) = \mathbb{P}(\textrm{k tossed | Better than k not tossed})\mathbb{P}(\textrm{Better than k not tossed})$$
+
+If we put all these equations together, we get:  
+
+$$\mathbb{P}(\textrm{Success}) = \mathbb{P}(\textrm{Don't throw away best})[\sum_{\textrm{all k}}(\mathbb{P}(\textrm{Success | Best tossed = k})
+*\mathbb{P}\\(\textrm{k tossed | Better than k not tossed})*\mathbb{P}(\textrm{Better than k not tossed})]$$  
+
+(I'm sorry about the ugly formatting. Without it it would go over the page margin and R Markdown isn't great with full $\LaTeX$ integration.)
+
+Each of these components should be easy enough to calculate.  
+
+* $\mathbb{P}(\textrm{Don't throw away best}) = \frac{n - p}{n}$
+    - there are n - p places for number 1 to go without being thrown out
+* The possible choices for k are 2 to n - p + 1.   
+    - If p = 3 candidates, the worst we could do is 100, 99, 98 in any order. k = 98 = 100 - 3 + 2).  
+* $\mathbb{P}(\textrm{Success | Best tossed = k}) = \frac{1}{k - 1}$  
+    - There is one #1 and k - 1 candidates who would be selected. These appear in a uniform random order.   
+* $\mathbb{P}(\textrm{k tossed | Better than k not tossed}) = \frac{p}{n - k + 1}$  
+    - p places remain for candidate k to be tossed, (n - k) + 1 total remaining positions.  
+* $\mathbb{P}(\textrm{Better than k not tossed}) = \frac{{{n - p - 1} \choose {k - 2}}}{{n - 1}\choose {k - 2}}$.  
+    - This is hard to explain in one line, think about how many ways this is satisfied compared to how many ways are possible.  
+
+Putting this all together, we have:  
+
+$$\mathbb{P}(\textrm{Success}) = \frac{n - p}{n}\sum_{k = 2}^{n - p + 1}(\frac{1}{k - 1}
+*\frac{p}{n - k + 1}*\frac{{{n - p - 1} \choose {k - 2}}}{{n - 1}\choose {k - 2}})$$  
+
+
+Let's see the actual probabilities of the 100 person situation. Again, the implementation code is on my github.  
+
+
+
+```{r, echo =F}
+
+interview_success_prob <- function(n, p) {
+  # Find the chance of hiring the number one option
+  # Inputs:
+  #   - n: integer. The number of total applicants
+  #   - p: integer. The number of initial applicants
+  # Outputs:
+  #   - win_prob: numeric. The probability of success
+  
+  # Define the chance that we don't throw away the best candidate 
+  prob_not_lost <- (n - p)/n
+  
+  curr_win_prob <- 0
+  
+  for (k in 2:(n - p + 1)) {
+    # Chance that the first pick better than the first p 
+    #  is actually number 1
+    best_if_passes <- 1/(k-1)
+    #print(best_if_passes)
+    kth_pick_included <- p/(n - k +1)
+    better_absent <- (choose((n - p - 1), (k - 2))/
+                                   choose((n - 1), (k - 2)))
+    
+  
+    curr_win_prob <- curr_win_prob + (best_if_passes*
+                                      kth_pick_included*
+                                      better_absent)
+  }
+ win_prob <- curr_win_prob * prob_not_lost
+ return(win_prob)
+}
+
+optimize_candidate_pool <- function(n) {
+  # Calculate success chance for each trial size (p).
+  # Inputs:
+  #   - n: integer. The total number of candidates
+  # Returns:
+  #   - result_frame: dataframe. success chance for
+  #                              each choice of p
+  
+  choices_of_p <- 1:(n-1)
+  chances_of_success <- rep(NA, length(choices_of_p))
+
+  for (p_iter in choices_of_p) {
+  chances_of_success[p_iter] <- interview_success_prob(n, p_iter)
+  }
+  
+  result_frame <- data.frame(num_candidates = rep(n, n-1),
+                                    p_choice = choices_of_p,
+                                    prob_success = chances_of_success)
+  
+  return(result_frame)
+  
+}
+
+results_for_100 <- optimize_candidate_pool(100)
+
+results_for_100 %>%
+  rename(Actual = prob_success) %>%
+  select(- num_candidates) %>%
+  merge(simmed_100_size %>%
+          rename(Simulated = prob_success) %>%
+          select(- num_candidates), by = "p_choice") %>%
+  melt(id.vars = "p_choice") %>%
+  rename(Type = variable, Probability = value) %>%
+  ggplot(aes(x = p_choice, y = Probability, color = Type)) +
+    geom_point() + 
+    labs(title = "Chance of Hiring Number 1 Candidate",
+         x = "Initial Candidates Tossed",
+         y = "Probability of Success") +
+    theme_clean()
+```
+
+As we'd hope, the results are very similar.  
+
+
+## Different Candidate Pools  
+
+As it turns out, this is a discrete process that approximates a smooth function (if we were to have infinitely many candidates). We can see this by changing p to a fraction of available candidates instead of the actual number of candidates.  
+
+Let's look at that graph for 10, 100, and 1000 candidates:  
+
+```{r, echo = F}
+resutls_for_10 <- optimize_candidate_pool(10)
+results_for_1000 <- optimize_candidate_pool(1000)
+
+resutls_for_10 %>%
+  bind_rows(results_for_100) %>% 
+  bind_rows(results_for_1000) %>%
+  mutate(p_frac = p_choice / num_candidates,
+         num_candidates = factor(num_candidates)) %>%
+  rename(Candidates = num_candidates) %>%
+  ggplot(aes(x = p_frac, y = prob_success, color = Candidates)) + 
+    geom_line() +
+    labs(title = "Approximating Continuity",
+         x = "Fraction of Initial Candidates Tossed",
+         y = "Probability of Success") + 
+    theme_clean()
+```
+
+And finally, here's a fun graph I made by accident while messing around with this post:  
+
+```{r, echo=F}
+full_interview_frame <- optimize_candidate_pool(2)
+
+for (n_cand in 3:100) {
+  full_interview_frame <- full_interview_frame %>%
+    bind_rows(optimize_candidate_pool(n_cand))
+}
+
+full_interview_frame %>%
+  #filter(num_candidates <= 10) %>%
+  mutate(num_candidates = as.factor(num_candidates)) %>%
+  ggplot(aes(x = p_choice, y = prob_success, color = num_candidates)) +
+    geom_line() + 
+    theme_void() + 
+    theme(legend.position = "none")
+```
+
+
+
+```{r extra graphs, eval = F, echo = F}
+
+
+full_interview_frame %>%
+  #filter(num_candidates <= 10) %>%
+  mutate(prop_seen = p_choice/num_candidates,
+         num_candidates = as.factor(num_candidates)) %>%
+  ggplot(aes(x = prop_seen, y = prob_success, color = num_candidates)) +
+    geom_line() + 
+    theme_void()
+
+
+
+
+full_interview_frame %>%
+  filter(num_candidates <= 10) %>%
+  mutate(num_candidates = as.factor(num_candidates)) %>%
+  ggplot(aes(x = p_choice, y = prob_success, color = num_candidates)) +
+    geom_line()
+
+
+thousand_success_chances <- optimize_candidate_pool(1000)
+
+
+thousand_success_chances %>%
+  #filter(prob_success == max(prob_success))
+  ggplot(aes(x = p_choice, y = prob_success)) +
+    geom_point()
+
+ten_success_chances 
+```
