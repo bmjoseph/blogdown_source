@@ -179,7 +179,7 @@ Each of these components should be easy enough to calculate.
 * $\mathbb{P}(\textrm{Don't throw away best}) = \frac{n - p}{n}$
     - there are n - p places for number 1 to go without being thrown out
 * The possible choices for k are 2 to n - p + 1.   
-    - If p = 3 candidates, the worst we could do is 100, 99, 98 in any order. k = 98 = 100 - 3 + 2).  
+    - If p = 3 candidates, the worst we could do is 100, 99, 98 in any order. k = 98 = 100 - 3 + 1).  
 * $\mathbb{P}(\textrm{Success | Best tossed = k}) = \frac{1}{k - 1}$  
     - There is one #1 and k - 1 candidates who would be selected. These appear in a uniform random order.   
 * $\mathbb{P}(\textrm{k tossed | Better than k not tossed}) = \frac{p}{n - k + 1}$  
@@ -201,6 +201,8 @@ Let's see the actual probabilities of the 100 person situation. Again, the imple
 
 interview_success_prob <- function(n, p) {
   # Find the chance of hiring the number one option
+  ## IMPORTANT: This functions uses factorials and is not optimized for large inputs. 
+  ##            It will NOT work if n is too large (because of overflow)
   # Inputs:
   #   - n: integer. The number of total applicants
   #   - p: integer. The number of initial applicants
@@ -229,6 +231,7 @@ interview_success_prob <- function(n, p) {
  win_prob <- curr_win_prob * prob_not_lost
  return(win_prob)
 }
+
 
 optimize_candidate_pool <- function(n) {
   # Calculate success chance for each trial size (p).
@@ -298,18 +301,60 @@ resutls_for_10 %>%
     theme_clean()
 ```
 
-And finally, here's a fun graph I made by accident while messing around with this post:  
+### Converging to e  
 
-```{r, echo=F}
+I didn't go through and actually prove this, but it looks to me like both the optimal fraction of candidates and the maximum probability of success both converge to $\frac{1}{e}$. You can see this convergence here:  
+
+```{r, echo = F}
 full_interview_frame <- optimize_candidate_pool(2)
 
-for (n_cand in 3:100) {
+for (n_cand in 3:150) {
   full_interview_frame <- full_interview_frame %>%
     bind_rows(optimize_candidate_pool(n_cand))
 }
 
+```
+
+
+```{r, echo = F}
 full_interview_frame %>%
-  #filter(num_candidates <= 10) %>%
+  group_by(num_candidates) %>%
+  filter(prob_success == max(prob_success)) %>%
+  mutate(p_frac = p_choice/num_candidates) %>%
+  ungroup() %>%
+  ggplot(aes(x = num_candidates, y = p_frac)) +
+    geom_line(color = "#00BFC4", size = 1.5) +
+    annotate("text", x = 151, y = 1/exp(1) + .017, color = "#F8766D",
+             label = quote("frac(1,e)"), parse = T) +
+    geom_hline(yintercept = 1/exp(1), color = "#F8766D", size = 1.5) +
+    labs(title = paste("Converging: Optimal Starting Fraction"),
+         x = "Total Number of Candidates",
+         y = "Optimal Starting Fraction") +
+    theme_clean()
+
+full_interview_frame %>%
+  group_by(num_candidates) %>%
+  filter(prob_success == max(prob_success)) %>%
+  mutate(p_frac = p_choice/num_candidates) %>%
+  ungroup() %>%
+  ggplot(aes(x = num_candidates, y = prob_success)) +
+    geom_line(color = "#00BFC4", size = 1.5) +
+    geom_hline(yintercept = 1/exp(1),  color = "#F8766D", size = 1.5) +
+    annotate("text", x = 151, y = 1/exp(1) + .01, color = "#F8766D",
+             label = quote("frac(1,e)"), parse = T) +
+    labs(title = "Converging: Best Case Success Probability",
+         x = "Total Number of Candidates",
+         y = "Best Case Success Probability") +
+    theme_clean()
+```
+
+
+And finally, here's a fun graph I made by accident while messing around with this post:  
+
+```{r, echo=F}
+
+full_interview_frame %>%
+ # filter(num_candidates <= 100) %>%
   mutate(num_candidates = as.factor(num_candidates)) %>%
   ggplot(aes(x = p_choice, y = prob_success, color = num_candidates)) +
     geom_line() + 
@@ -351,4 +396,27 @@ thousand_success_chances %>%
     geom_point()
 
 ten_success_chances 
+
+large_n <- optimize_candidate_pool(1550)
+large_n %>% filter(!is.na(prob_success)) %>%
+  ggplot(aes(x = p_choice, y = prob_success)) + geom_point()
+
+large_n %>% filter(!is.na(prob_success)) %>% arrange(-prob_success)
+
+570/1550
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
