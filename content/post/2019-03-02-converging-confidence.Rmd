@@ -1,0 +1,196 @@
+---
+title: Tornado Plot Animation
+author: Bailey Joseph
+date: '2019-03-02'
+slug: torn-plot_anim
+output:
+  blogdown::html_page:
+    toc: true
+categories: []
+tags: []
+---
+
+I recently thought about the possibility of making art by combining different plots into a gif. I thought back to my time in Oklahoma last summer and experimented with plotting a tornado. Here's what I came up with. I made the attempt on the left, then the middle, and then finally, the right. 
+
+```{r, out.width="32%", out.height="20%"}
+knitr::include_graphics(c('/images/conv_conf/torn_weak.gif', '/images/conv_conf/torn.gif', "/images/conv_conf/torn_best.gif"))
+```
+
+To figure out how to plot this, I started with four goals:  
+
+1) I wanted a cone (ish) shape.  
+2) I wanted the final plots to be somehow random.  
+3) I wanted the bottom to move predictably from left to right.  
+4) I wanted the top to be less predictable.  
+
+With those together, I decided to plot confidence intervals on randomly generated binomial distributions, each with the same p, but different n. These are not actually valid confidence intervals for small n, but that's okay.
+
+My implementation is in the source of this document, but the code is ugly and not well documented, so I won't include it here. You can find it on my Github if you're interested. 
+
+By the way, if you want to make your own plot gifs, I recommend the gif maker at [this website](https://gifmaker.me/). I used that for each gif in this post. (I tried to use gganimate, but the installation didn't work on my computer. I'll definitely go back and figure it out later, but at the time I just wanted to test the visualization as soon as possible.) The final draft gif has a gap of 150ms between frames, unfortunately I'm not sure about the others. 
+
+
+```{r, eval = F, echo = F}
+# ===============================================
+# Functions
+# Unfortunately, these are not well documented.
+# ===============================================
+
+get_sample_mean <- function(p, times) {
+  return(mean(sample(c(1,0), size = times, replace = T, prob = c(p, 1-p))))
+}
+
+get_conf_lower <- function(p_hat, n_times, two_sided_conf = .95) {
+  if (p_hat == 0) {
+    return(0)
+  }
+  z_val <- qnorm(1 - (1- two_sided_conf)/2)
+  p_hat - z_val*sqrt((p_hat*(1-p_hat))/n_times)
+}
+
+get_conf_upper <- function(p_hat, n_times, two_sided_conf = .95) {
+  if (p_hat == 0) {
+    return(.9999)
+  }
+  z_val <- qnorm(1 - (1- two_sided_conf)/2)
+  p_hat + z_val*sqrt((p_hat*(1-p_hat))/n_times)
+}
+
+
+
+generate_conf_frame <- function(out_to = 100,
+                                start = 1, skip = 1,
+                                two_sided_conf = .95,
+                                real_p = NA,
+                                dependent = F,
+                                random_seed = NA) {
+  if(!is.na(random_seed)) {
+    set.seed(random_seed)
+  }
+  
+  
+  if(is.na(real_p)) {
+    real_p <- runif(1)
+  }
+  
+  samp_size <- seq(start, out_to, skip)
+  total_runs <- length(samp_size)
+  run_num <- 1:total_runs
+  
+  p_hat_est <- rep(NA, total_runs)
+  p_hat_lower <- rep(NA, total_runs)
+  p_hat_upper <- rep(NA, total_runs)
+  
+  # Vars in the case of dependent
+  # Incremement by sample size each time
+  curr_total <- 0
+  # Increment by sample size times sample mean each time
+  curr_sum <- 0
+  
+  for (i in 1:total_runs) {
+    this_ss <- samp_size[i]
+    if (dependent) {
+      curr_total = curr_total + this_ss
+      curr_sum = curr_sum + (this_ss*get_sample_mean(real_p, this_ss))
+    }
+    this_p_hat <- get_sample_mean(real_p, this_ss)
+    if (dependent) {
+      this_p_hat <- curr_sum/curr_total
+    }
+    relevant_ss <- ifelse(dependent, curr_total, this_ss)
+    this_conf_lower <- get_conf_lower(this_p_hat, relevant_ss, two_sided_conf)
+    this_conf_upper <- get_conf_upper(this_p_hat, relevant_ss, two_sided_conf)
+    p_hat_est[i] <- this_p_hat
+    p_hat_lower[i] <- this_conf_lower
+    p_hat_upper[i] <- this_conf_upper
+  }
+  
+  return(data.frame(random_p = rep(real_p, total_runs),
+                    run = 1:total_runs,
+                    sample_size = samp_size,
+                    p_hat = p_hat_est,
+                    lower_bound = p_hat_lower,
+                    upper_bound = p_hat_upper))
+}
+
+
+plot_conf_infs <- function(conf_inf_table, alph = .3) {
+  p_true <- conf_inf_table$random_p[1]
+  conf_inf_table %>%
+    ggplot(aes(x = -sample_size,   y= p_hat, ymin = lower_bound, ymax = upper_bound)) +
+     coord_flip(ylim = c(.1,.9)) +
+    geom_linerange(alpha = alph, size = 1.5) +
+    theme_void()
+    
+}
+
+download_tornado_plots <- function(p_start = .01, p_end = .09, p_by = .01,
+                                 out_to = 500, start = 1, skip = 2, 
+                                 directory_to_save = "images/", alph = .5, depend = T) {
+  
+  p_for_plot <- seq(p_start, p_end, p_by)
+  num_plots <- length(p_for_plot)
+  
+  for(i in 1:num_plots) {
+    plot_name <- paste0(directory_to_save, "torn_plot_", i, ".png")
+    this_plot <- plot_conf_infs(generate_conf_frame(real_p = p_for_plot[i], out_to, start, skip, dependent = depend), alph = alph)
+    ggsave(plot_name, this_plot, height = 5, width = 5)
+  }
+    
+}
+
+```
+
+```{r example usage, eval = F, echo = F}
+
+# ==================================
+# Example Usage
+# ==================================
+
+# Packages
+library(ggplot2)
+library(dplyr)
+
+thousand_runs <- generate_conf_frame(out_to = 1000, random_seed = 17)
+
+thousand_runs %>%
+   ggplot(aes(x = -run,   y= p_hat, ymin = lower_bound, ymax = upper_bound)) +
+    geom_pointrange() +
+    coord_flip()
+    geom_point(aes(x = lower_bound)) +
+    geom_point(aes(x = upper_bound))
+
+  
+# Takes a reasonably long time to finish.       
+out_to_10k <- generate_conf_frame(out_to = 10000, start = 1, skip = 100)
+
+
+dependent_first_try <- generate_conf_frame(real_p = .5, dependent = T, random_seed = 13)
+
+## out to 500, start = 1, skip = 2 gives good results, but should be narrower at bottom
+plot_conf_infs(generate_conf_frame(out_to = 750, start = 1, skip = 3))
+
+ps_to_use <- seq(.1, .9, by = .01)
+
+
+download_tornado_plots(p_start = .1, p_end = .9, out_to = 1000, start = 10, skip = 4, directory_to_save = "images/transparency_out_1000/")
+download_tornado_plots(p_start = .4, p_end = .6, out_to = 600, start = 10, skip = 2, directory_to_save = "images/transparency_test/")
+
+plot_conf_infs(generate_conf_frame(out_to = 1800, start = 10, skip = 2))
+plot_conf_infs(generate_conf_frame(out_to = 1000, start = 10, skip = 4))
+
+for (test_p in seq(.3, .7, .01)) {
+  plot_conf_infs(generate_conf_frame(out_to = 200, start = 10, skip = 1, real_p = test_p, dependent = T))
+}
+
+# Dependent, fixed axis, high transparency
+# Considered the final draft
+download_tornado_plots(p_start = .4, p_end = .6, out_to = 100, start = 10, skip = 1, directory_to_save = "images/fix_axis_test/", alph = .5)
+
+
+plot_conf_infs(generate_conf_frame(out_to = 700, start = 15, skip = 3, real_p = .5, dependent = F), alph = .5)
+set.seed(1313)
+download_tornado_plots(p_start = .4, p_end = .6, out_to = 700, start = 15, skip = 3, directory_to_save = "images/indep_fixed_axis/", alph = .5, depend = F)
+
+
+```
