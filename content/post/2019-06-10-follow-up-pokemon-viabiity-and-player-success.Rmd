@@ -1,0 +1,279 @@
+---
+title: 'Follow Up: Pokemon Viability and Player Success'
+author: ~
+date: '2019-06-10'
+slug: follow-up-pokemon-viabiity-and-player-success
+categories: []
+tags: []
+---
+
+In my last post, we saw that Pokemon with higher viability ranks tend to get more usage than Pokemon with low viability ranks. That's interesting, but it doesn't really show that higher viability means a Pokemon is better, or even that viability rankings mean anything at all. It could just be that players check the rankings before making their teams. I still won't be able to *prove* that viability means anything (for that, we'd need a lot of players to use randomly assigned Pokemon against randomly assigned opponents doing the same thing, probably with a blocked design), but this post will check to see if higher viability Pokemon are relatively more common at the upper end of the ladder. 
+
+As mentioned briefly before, Smogon proves usage stats with different weightings. The general format is `OU_stats_XX` where XX is either 0, 1500, 1695, or 1825. The higher the number, the higher the weight of good players. 
+
+The data collection and cleaning process is very similar to my last post, and the code is on my GitHub.  
+
+
+```{r, include = F, echo = F}
+knitr::opts_chunk$set(fig.width=7, fig.height=5,
+                      echo=FALSE, warning=FALSE, message = FALSE)
+```
+
+```{r, set options and load packages, echo = F, warning= F, include = F}
+dl_path <- "../../static/data/pokemon/"
+library(DT)
+library(ggplot2)
+library(plotly)
+library(readr)
+library(stringr)
+library(dplyr)
+library(purrr)
+
+theme_clean <- function() {
+  theme_bw(base_size = 11) +
+    theme(text = element_text(family = "Roboto"),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.grid.minor.y = element_blank(),
+          panel.background = element_rect(colour = "#E1E1E1"),
+          panel.border = element_blank())
+}
+
+```
+
+```{r, create necessary dataframes, echo = F, include= F, warning = F}
+
+# Set the order of the ranks
+rank_order <- c("S", "A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "NR")
+
+# Get Table of OU Viable mons and their ranks
+ou_viability <- read_csv(paste0(dl_path,"ou_viability.html"), col_names = "Text") %>% 
+  filter(str_detect(Text, "link link--internal") |
+           str_detect(Text, " Rank<")) %>% 
+  mutate(Name = ifelse(str_detect(Text, " Rank<"), "Rank",
+                       # Just get the actual name with some weird regex
+                       str_extract_all(Text, '(?<=link link--internal">)(.*)(?=</a>)')),
+         Name = unlist(Name),
+         Name = ifelse(str_detect(Name, "<"),
+                       trimws(substring(str_extract_all(Name, ">\\s?[A-Z].*"), 2)),
+                       Name)) %>%
+  filter(substr(Name, 1, 1) %in% LETTERS) %>% 
+  mutate(isRank = Name == "Rank",
+         ranksSeen = cumsum(isRank),
+         Name = ifelse(Name == "Rank", str_extract(Text, "[SABC]\\+?-?"), Name),
+         Rank = factor(rank_order[ranksSeen], levels = rank_order)) %>% 
+  filter(!isRank) %>% 
+  select(Name, Rank)
+
+
+
+read_usage <- function(filename) {
+  # Take in a smogon OU usage data file and return it as a cleaned dataframe
+  read_delim(paste0(dl_path, filename),
+           delim = "|", skip = 5,
+           col_names = c("NA", "UsageRank", "Name", "Usage", "x", "x1", "x2", "x3")) %>% 
+  select(UsageRank:Usage) %>% 
+  mutate(Usage = substr(Usage, 1, nchar(Usage) - 2),
+         Usage = as.numeric(Usage) / 100,
+         Name = str_replace_all(Name, "-Mega", " (Mega)"),
+         Name = str_replace_all(Name, "\\(Mega\\)-X", "(Mega X)"),
+         Name = str_replace_all(Name, "\\(Mega\\)-Y", "(Mega Y)"),
+         Name = str_replace_all(Name, "-Therian", "-T"),
+         Name = str_replace_all(Name, "-Wash", "-W"),
+         Name = str_replace_all(Name, "-Black", "-B"),
+         Name = str_replace_all(Name, "-Unbound", "-U"),
+         Name = trimws(Name),
+         # This is not technically true, really being in OU is a function 
+         # of more than just one month's usage, but this is close enough.
+         isOU = Usage > .0341) 
+}
+
+usage_1500 <- read_usage("ou_usage_1500.txt")
+usage_0 <- read_usage("ou_usage_0.txt")
+usage_1695 <- read_usage("ou_usage_1695.txt")
+usage_1825 <- read_usage("ou_usage_1825.txt")
+```
+
+First, let's start with an example using only the S (best) ranked Pokemon. 
+
+```{r}
+all_usages <- usage_0 %>% 
+  mutate(cutoff = 0) %>% 
+  bind_rows(
+    usage_1500 %>% 
+      mutate(cutoff = 1500) %>% 
+      bind_rows(
+        usage_1695 %>% 
+          mutate(cutoff = 1695) %>% 
+          bind_rows(
+            usage_1825 %>% 
+              mutate(cutoff = 1825)
+          )
+      )
+  ) %>% 
+  mutate(cutoff = factor(cutoff, levels = c(0, 1500, 1695, 1825)))
+
+
+
+
+
+
+s_ranked_look <- ou_viability %>% 
+  merge(all_usages, by = "Name", all.x = T, all.y = T) %>% 
+  filter(as.character(Rank) == "S") %>% 
+  ggplot(aes(x = as.numeric(cutoff), y = Usage, color = Name)) +
+    geom_point(aes(text = paste0("Name: ", Name, "\n",
+                                 "Usage: ", round(Usage, 2))), size = 2) +
+    geom_line(aes(text = Name)) +
+    labs(title = "Player Success against Usage for S Rank Pokemon",
+         x = "Weighting Cutoff",
+         y = "Weighted Usage") +
+    scale_x_continuous(breaks = 1:4, labels = c(0, 1500, 1695, 1825)) +
+    theme_clean()
+
+
+ggplotly(tooltip = "text")
+```
+As we can see here, three of the four S ranked Pokemon get more common as we move up the ladder towards 1825. Magearna in particular more than doubles its usage from the unweighted (0) stats to the top of the ladder (1825) stats. 
+
+This is not true for all ranks. Let's check the same plot for the C- ranks:  
+
+```{r}
+c_minus_plot <- ou_viability %>% 
+  merge(all_usages, by = "Name", all.x = T, all.y = T) %>% 
+  filter(as.character(Rank) == "C-") %>% 
+  ggplot(aes(x = as.numeric(cutoff), y = Usage, color = Name)) +
+    geom_point(aes(text = paste0("Name: ", Name, "\n",
+                                 "Usage: ", round(Usage, 3))), size = 2) +
+    geom_line() +
+    labs(title = "Player Success against Usage for C- Rank Pokemon",
+         x = "Weighting Cutoff",
+         y = "Weighted Usage") +
+    scale_x_continuous(breaks = 1:4, labels = c(0, 1500, 1695, 1825)) +
+    theme_clean()
+
+
+ggplotly(tooltip = "text")
+```
+
+These Pokemon have been rated as barely viable (C-), and tend to drop off in usage as we go up the ladder.  
+
+Let's interpret each of these plots as a scatterplot and compute the slope of the regression line. I'm going to assume equal distance between the cutoffs (as it's plotted, and not as the numbers 0, 1500, 1695, and 1825).  
+
+We can assume that a positive slope means that Pokemon in the rank tend to be used more by successful players. This doesn't guarantee that they're actually better, but hopefully can at least give us some sense. One huge shortcoming is that we're looking at individual Pokemon, but viability is dependent on the team. For example, notice in the C- plot above that Avalugg increases in usage at 1695 and 1825. This doesn't mean that it's a good Pokemon to put on any team, but instead that there are one or two popular stall teams that use Avalugg to fulfill an important niche. Good players use stall at a higher rate than bad players.   
+
+```{r}
+find_lm_slope <- function(x, y) {
+  coeffs <- lm(y ~ x)$coefficients
+  coeffs[2]
+}
+
+ou_viability %>% 
+  merge(all_usages, by = "Name", all.x = T, all.y = T) %>% 
+  mutate(numCut = as.numeric(cutoff)) %>% 
+  group_by(Rank) %>% 
+    summarize(slope = find_lm_slope(numCut, Usage)) %>% 
+  ggplot(aes(x= Rank, y = slope)) +
+   geom_point() +
+   labs(title = "Pokemon with High Ranks are Used More by Better Players",
+        x = "Viability Rank",
+        y = "Regression Slope") +
+    theme_clean()
+
+```
+
+It appears that Pokemon with ranks at least A- are used relatively more by good players, and maybe C/C- Pokemon are used less. To make a strong conclusion, we'll need to test that these slopes are significantly different from 0. I don't want to make normality assumptions (clearly nothing is normal here), so I'll permute the cutoff for each pokemon, compute the new slopes, and then repeat this many times to form a null distribution under the assumption that the cutoffs have no relationship to usage. In this next plot, the grey shaded region is set up to cover 95% of the simulated slopes for each Rank. S rank is the widest because it has the fewest members. 
+
+
+```{r}
+viability_with_cuts <- ou_viability %>% 
+  merge(all_usages, by = "Name", all.x = T, all.y = T) %>% 
+  mutate(numCut = as.numeric(cutoff))
+
+gen_one_permed_frame <- function() {
+  viability_with_cuts %>% 
+    group_by(Name) %>% 
+      mutate(cutPerm = sample(numCut)) %>% 
+    ungroup() %>% 
+    group_by(Rank) %>% 
+      summarize(slope = find_lm_slope(cutPerm, Usage)) %>% 
+    ungroup()
+    
+}
+
+
+gen_many_permed_frames <- function(nperm, random_seed = NA) {
+  if (!is.na(random_seed)) {
+    set.seed(random_seed)
+  }
+  seed_frame <- gen_one_permed_frame()
+  for (i in 2:nperm) {
+    seed_frame <- seed_frame %>% 
+      bind_rows(gen_one_permed_frame())
+  }
+  return(seed_frame)
+}
+
+
+#simulated_data <- gen_many_permed_frames(1000, random_seed = 13)
+#write_csv(simulated_data, paste(dl_path, "cutoff_perm_data.csv"))
+
+simDat <- read_csv(paste(dl_path, "cutoff_perm_data.csv"))
+
+simDat %>% 
+  group_by(Rank) %>% 
+    summarize(perc_50 = median(slope),
+              perc_025 = quantile(slope, .025),
+              perc_975 = quantile(slope, .975)) %>% 
+  ungroup() %>% 
+  mutate(Rank = factor(Rank, levels = rank_order)) %>% 
+  merge(viability_with_cuts %>% 
+          group_by(Rank) %>% 
+          summarize(realSlope = find_lm_slope(numCut, Usage)),
+        by = "Rank") %>% 
+   mutate(numericRank = as.numeric(Rank),
+         numericRank = ifelse(is.na(numericRank), 11, numericRank)) %>% 
+  ggplot(aes(x = numericRank, y = realSlope)) +
+    geom_point() +
+    geom_ribbon(aes(ymin = perc_025, ymax = perc_975), alpha = .5) +
+    scale_x_continuous(breaks = c(1:11), labels = rank_order) + 
+    labs(title = "Checking Significance",
+         x = "Viability Rank",
+         y = "Regression Slope") +
+    theme_clean()
+
+```
+
+We can conclude that better players probably really are using Pokemon in A- rank and above at a higher rate and probably use Pokemon in C- less often. The middle ranks are inconclusive. 
+
+(Note: It might be interesting to model usage as a function of viability and an interaction effect between viability and cutoff. While we normally don't want to use interactions without using the component variables on their own, we know that the weighting cutoff *can't* have a systematic effect on usage, since all usages must sum to 100% regardless of the weighting.) 
+
+Next, let's look for the Pokemon that are most (and least) favored by successful players. I'll filter for pokemon with at least .5% usage in the OU-1500 list (what the average player sees) and then take these steps for each Pokemon:  
+
+1) Store the OU-1500 usage.  
+2) Compute the slope of the regression line through all four cutoffs, again treating the cutoffs as 1:4.  
+3) Normalize the values by dividing the slope by the usage in OU-1500.  
+
+
+Here are the results:  
+
+```{r}
+acceptablePokemon <- usage_1500 %>% filter(Usage >= .005) %>% pull(Name)
+
+viability_with_cuts %>% 
+  filter(!is.na(Name),
+         Name %in% acceptablePokemon) %>% 
+  group_by(Name) %>% 
+    summarize(Slope = find_lm_slope(numCut, Usage)) %>% 
+  merge(usage_1500, by = "Name") %>% 
+  merge(ou_viability, by = "Name", all.x  = T) %>% 
+  mutate(Score = Slope/Usage) %>% 
+  select(Name, Rank, UsageRank, Score) %>% 
+  arrange(-Score) %>% 
+  datatable()
+ 
+```
+
+The results make sense. Good, bulky Pokemon that aren't often used by mediocre players are at the top of the list while meme picks like Arcanine and the eeveelutions are all at the end of the list. Maybe I'll try building a team around Mega Latias.  
+
+

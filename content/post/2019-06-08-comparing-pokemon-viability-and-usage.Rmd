@@ -1,0 +1,179 @@
+---
+title: Comparing Pokemon Viability and Usage
+author: ~
+date: '2019-06-08'
+slug: comparing-pokemon-viability-and-usage
+categories: []
+tags: []
+---
+
+For anyone who's unfamiliar, a company called [Smogon](https://www.smogon.com/) has a Pokemon battle simulator called [Pokemon Showdown](https://play.pokemonshowdown.com/). While you can play in matches that match the official VGC doubles rules, Smogon has their own tier based singles competitions. Tiers are based on how much each pokemon gets used, but the Smogon forums also provide a "viability ranking" for each poekmon in each tier. 
+
+Today I'm going to investigate the relationship between a Pokemon's usage and viability in the overused tier. Smogon actually collects usage data with different weightings based on the rank of the user. For this post, I'll just be looking at what the average player sees, but a follow up post will check if more successful users tend to pick pokemon with higher viabilities. 
+
+My process was:  
+
+1) Download the necessary files using `download.file` and their URLs. I scraped the OU viability ranking chart and the OU usage stats for May 2019.  
+2) Read the html/text files into clean dataframes. I used `readr` to read the html files, `stringr` to deal with the messy text structure and make the Pokemon names match, and `dplyr` for everything else.  
+3) Merge the dataframes by Pokemon name and create the plot.  
+
+*As always, you can find the code for this post on my GitHub.*  
+
+
+```{r, set options and load packages, echo = F, warning= F, include = F}
+dl_path <- "../../static/data/pokemon/"
+library(ggplot2)
+library(plotly)
+library(readr)
+library(rvest)
+library(stringr)
+library(dplyr)
+
+theme_clean <- function() {
+  theme_bw(base_size = 11) +
+    theme(text = element_text(family = "Roboto"),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.grid.minor.y = element_blank(),
+          panel.background = element_rect(colour = "#E1E1E1"),
+          panel.border = element_blank())
+}
+
+```
+
+
+```{r, download necessary files, echo = F, include = F, warning = F}
+# These are all commented out because they only need to be downloaded once. 
+
+# The viability rankings thread front page
+#download.file("https://www.smogon.com/forums/threads/usum-ou-ultra-viability-ranking-thread.3621329/",
+#              paste0(dl_path,"ou_viability.html"))
+
+# The most recent usage stats for 1500 (pretty much what the average player sees)
+#download.file("https://www.smogon.com/stats/2019-05/gen7ou-1500.txt", 
+#              paste0(dl_path, "ou_usage_1500.txt"))
+
+# The most recent usage stats for 0 (completely unweighted by skill or trolliness)
+#download.file("https://www.smogon.com/stats/2019-05/gen7ou-0.txt", 
+#              paste0(dl_path, "ou_usage_0.txt"))
+
+# The most recent usage stats for 1695 (average good player)
+#download.file("https://www.smogon.com/stats/2019-05/gen7ou-1695.txt", 
+#              paste0(dl_path, "ou_usage_1695.txt"))
+
+# The most recent usage stats for 1825 (top of the ladder-ish)
+#download.file("https://www.smogon.com/stats/2019-05/gen7ou-1825.txt", 
+#              paste0(dl_path, "ou_usage_1825.txt"))
+```
+
+
+```{r, create necessary dataframes, echo = F, include= F, warning = F}
+
+# Set the order of the ranks
+rank_order <- c("S", "A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "NR")
+
+# Get Table of OU Viable mons and their ranks
+ou_viability <- read_csv(paste0(dl_path,"ou_viability.html"), col_names = "Text") %>% 
+  filter(str_detect(Text, "link link--internal") |
+           str_detect(Text, " Rank<")) %>% 
+  mutate(Name = ifelse(str_detect(Text, " Rank<"), "Rank",
+                       # Just get the actual name with some weird regex
+                       str_extract_all(Text, '(?<=link link--internal">)(.*)(?=</a>)')),
+         Name = unlist(Name),
+         Name = ifelse(str_detect(Name, "<"),
+                       trimws(substring(str_extract_all(Name, ">\\s?[A-Z].*"), 2)),
+                       Name)) %>%
+  filter(substr(Name, 1, 1) %in% LETTERS) %>% 
+  mutate(isRank = Name == "Rank",
+         ranksSeen = cumsum(isRank),
+         Name = ifelse(Name == "Rank", str_extract(Text, "[SABC]\\+?-?"), Name),
+         Rank = factor(rank_order[ranksSeen], levels = rank_order)) %>% 
+  filter(!isRank) %>% 
+  select(Name, Rank)
+
+
+
+read_usage <- function(filename) {
+  # Take in a smogon OU usage data file and return it as a cleaned dataframe
+  read_delim(paste0(dl_path, filename),
+           delim = "|", skip = 5,
+           col_names = c("NA", "UsageRank", "Name", "Usage", "x", "x1", "x2", "x3")) %>% 
+  select(UsageRank:Usage) %>% 
+  mutate(Usage = substr(Usage, 1, nchar(Usage) - 2),
+         Usage = as.numeric(Usage) / 100,
+         Name = str_replace_all(Name, "-Mega", " (Mega)"),
+         Name = str_replace_all(Name, "\\(Mega\\)-X", "(Mega X)"),
+         Name = str_replace_all(Name, "\\(Mega\\)-Y", "(Mega Y)"),
+         Name = str_replace_all(Name, "-Therian", "-T"),
+         Name = str_replace_all(Name, "-Wash", "-W"),
+         Name = str_replace_all(Name, "-Black", "-B"),
+         Name = str_replace_all(Name, "-Unbound", "-U"),
+         Name = trimws(Name),
+         # This is not technically true, really being in OU is a function 
+         # of more than just one month's usage, but this is close enough.
+         isOU = Usage > .0341) 
+}
+
+usage_1500 <- read_usage("ou_usage_1500.txt")
+
+viab_and_usage <- ou_viability %>% 
+  merge(usage_1500, by = "Name", all.x = T, all.y = T) %>% 
+  filter(!is.na(isOU))
+```
+
+
+```{r, create the plot, echo = F, warning = F, message = F}
+
+viab_usage_plot <- viab_and_usage %>% 
+  mutate(numericRank = as.numeric(Rank),
+         numericRank = ifelse(is.na(numericRank), 11, numericRank)) %>%  
+  ggplot(aes(x = numericRank, y = Usage)) +
+  geom_point(aes(text = Name), color = "Blue4") +
+  stat_summary(fun.y = median, group = "numericRank", geom = "line", color = "Darkgoldenrod2") +
+  scale_x_continuous(breaks = c(1:11), labels = rank_order) +
+  labs(title = "Comparing OU Viability Ranking to Usage %",
+       x = "Viability Rank",
+       y = "Usage") +
+  theme_clean()
+
+ggplotly(tooltip = "text")
+```
+
+In this plot, the points represent the ranks and usage of specific pokemon while the line goes through the median of each rank. It's clear that higher ranked pokemon tend to see more usage, at least until around the B- rank where the relationship seems to break down. 
+
+In my next post, I'll investigate whether there is a relationship between Pokemon usage and the type of weighting we use for the stats -- that is, are some pokemon used more frequently by successful players? 
+
+
+```{r, include = F, eval = F, echo = F}
+
+usage_0 <- read_usage("ou_usage_0.txt")
+usage_1695 <- read_usage("ou_usage_1695.txt")
+usage_1825 <- read_usage("ou_usage_1825.txt")
+
+all_usages <- usage_0 %>% 
+  mutate(cutoff = 0) %>% 
+  bind_rows(
+    usage_1500 %>% 
+      mutate(cutoff = 1500) %>% 
+      bind_rows(
+        usage_1695 %>% 
+          mutate(cutoff = 1695) %>% 
+          bind_rows(
+            usage_1825 %>% 
+              mutate(cutoff = 1825)
+          )
+      )
+  )
+
+ou_viability %>% 
+  merge(all_usages, by = "Name", all.x = T, all.y = T) %>% 
+  filter(as.character(Rank) == "C-") %>% 
+  ggplot(aes(x = rank(cutoff), y = Usage, color = Name)) +
+    facet_wrap(~Rank) +
+    geom_point(aes(text = Name)) +
+    geom_line(aes(text = Name)) 
+
+
+ggplotly(tooltip = "text")
+```
+
