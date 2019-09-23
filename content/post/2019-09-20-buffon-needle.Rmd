@@ -1,0 +1,136 @@
+---
+title: Simulating Pi Using Buffon's Needle
+author: ~
+date: '2019-09-20'
+slug: buffon-needle
+categories: []
+tags: []
+---
+```{r, echo = F, message = F, warning = F}
+library(dplyr)
+library(ggplot2)
+```
+
+It figures that Buffon's needle is one letter away from Buffoon's needle. You've got to be a buffoon to try to estimate $\pi$ by tossing needles at a piece of paper. Or you're me, and you're an even bigger buffoon because you used $\pi$ to simulate tossing needles at a piece of paper to estimate $\pi$. 
+
+I first learned about Buffon's needle as a homework problem in one of my stats classes. The setup is as follows: 
+
+Throw a needle of length $l$ at a piece of paper marked with vertical (or horizontal, it's symmetric) lines separated by width $h$. What's the probability that the needle crosses one of the lines? 
+
+I won't go through the math here, but in the special case that $l = h$, it turns out to be $\frac{2}{\pi} \approx .637$
+
+To do the simulation, I picked a random point for one end of the needle to land, and then a random angle for the direction of the rest of the needle. I realize this is cheating because I choose an angle between 0 and $2 \pi$, but the idea was to simulate the physical situation of tossing a needle. Nature also lets you use pi as a constant. Oh well. 
+
+To visualize this, let's first look at just a couple tosses. All the implementation code is on my GitHub as usual. 
+
+```{r, echo = F, message = F, warning = F}
+place_needle_head <- function(dim = 3) {
+  x <- runif(1, -dim, dim)
+  y <- runif(1, -dim, dim)
+  return(c(x,y))
+}
+
+pick_needle_angle <- function() {
+  return(runif(1, 0, 2*pi))
+}
+
+get_needle_endpoints <- function(dim = 3) {
+  s_point <- place_needle_head(dim)
+  angle <- pick_needle_angle()
+  endX = s_point[1] + cos(angle)
+  endY = s_point[2] + sin(angle)
+  return(data.frame(startX = s_point[1], endX = endX,
+                    startY = s_point[2], endY = endY))
+}
+
+needle_hits <- function(needle_location) {
+  return(floor(needle_location$startX) != floor(needle_location$endX))
+}
+
+
+make_needle_df <- function(n_needles = 1000, dim = 3, random_seed = F) {
+  if(random_seed) {
+    set.seed(random_seed)  
+  }
+  needle_df <- vector("list", length = n_needles)
+  for (i in 1:n_needles) {
+    needle_df[[i]] = get_needle_endpoints(dim)
+  }
+  needle_df <- bind_rows(needle_df) %>% 
+    mutate(dim = dim,
+           hits = floor(startX) != floor(endX))
+  return(needle_df)
+}
+
+plot_needle_drop <- function(needle_df, dim = 4) {
+  
+  pi_approx <- round(2 / mean(needle_df$hits), 3)
+  
+  needle_df %>% 
+    rename(`Needle Hits` = hits) %>% 
+    ggplot(aes(x = startX, y = startY, xend = endX, yend = endY)) +
+      geom_segment(aes(color = `Needle Hits`), size = 2) +
+      labs(title = paste("Simulating", nrow(needle_df), "iterations of Buffon's Needle"),
+           #subtitle = paste0("* Approximation of ",
+          #                   expression(pi), " is ",
+          #                   round(pi_approx, 3)),
+           subtitle = bquote(pi %~~% .(pi_approx)),
+           x = "", y = "") +
+      scale_color_manual(values = c("blue4", "darkgoldenrod2")) +
+      coord_cartesian(xlim = c(-dim, dim), ylim = c(-dim, dim)) +
+      scale_x_continuous(breaks = seq(-dim, dim, 1)) +
+      scale_y_continuous(breaks = seq(-dim, dim, 1)) +
+      theme(aspect.ratio=1,
+            panel.background = element_rect(fill = alpha("white")),
+            axis.text = element_blank(),
+            axis.ticks = element_blank(),
+            panel.grid.major.y = element_blank(),
+            panel.grid.minor = element_blank(),
+            panel.grid.major.x = element_line(color = "black", size = .25))
+}
+
+theme_clean <- function () { 
+    theme_bw(base_size = 11) +
+   theme(panel.grid.major.x=element_blank(), panel.grid.minor.x = element_blank(),
+           panel.grid.minor.y = element_blank(), panel.background = element_rect(colour = "#E1E1E1"),
+           panel.border = element_blank())
+}
+```
+
+```{r, echo = F, message = F, warning = F}
+set.seed(13)
+plot_needle_drop(make_needle_df(10))
+```
+
+Seven of the ten needles crossed a vertical line, giving us an approximation of $\pi$ of $\frac{2}{.7} \approx 2.857$.
+
+Let's try it with a few more needles: 
+
+```{r, echo = F, message = F, warning = F}
+set.seed(3)
+plot_needle_drop(make_needle_df(100))
+```
+
+Binomial trials clearly aren't a very good way to quickly estimate $\pi$, but to verify that it really will converge, let's plot the estimate of pi after each of 10,000 trials:
+
+```{r, echo = F, message = F, warning = F}
+ten_thousand_needles <- make_needle_df(10000, 3, 1313)
+
+ten_thousand_needles %>% 
+  mutate(trial = row_number(),
+         hit_rate = cummean(hits),
+         pi_est = 2 / hit_rate) %>% 
+  filter(trial > 50) %>% 
+  ggplot(aes(x = trial, y = pi_est)) +
+    geom_hline(yintercept = pi, color = "darkgoldenrod2", size = 1.5) +
+    geom_line(color = "blue4", size = 1.5) +
+    labs(title = bquote("Buffon's Needle Converging to" ~ pi),
+         x = "Trial Number",
+         y = bquote("Estimate of" ~ pi)) +
+    coord_cartesian(ylim = c(2.5, 4.5)) +
+    theme_clean()
+
+```
+
+It turns out that Buffon was pretty smart.
+
