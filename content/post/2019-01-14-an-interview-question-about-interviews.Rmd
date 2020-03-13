@@ -76,7 +76,7 @@ simulate_one_hiring <- function(n, p, verbose = F) {
     selected_employee <- ranks[first_selected_position]
     if (verbose) {
       print(paste("Best Thrown Out:",best_thrown_out))
-      print(paste("First Selected Positiont:",first_selected_position))
+      print(paste("First Selected Position:",first_selected_position))
       print(paste("Selected Employee:",selected_employee))
     }
     return(selected_employee == 1)
@@ -88,7 +88,7 @@ And let's see a few runs and what can happen:
 
 If we use a small number of test subjects:  
 ```{r}
-set.seed(1)
+set.seed(2)
 simulate_one_hiring(100, 5, verbose = T)
 ```
 There's a high chance that we won't see a very good candidate in the test phase, then we'll select a non optimal candidate.  
@@ -104,7 +104,7 @@ There's a high chance that we'll throw away the number one candidate.
 If we choose a moderate number, we can get the best candidate:  
 
 ```{r}
-set.seed(3)
+set.seed(6)
 simulate_one_hiring(100, 30, verbose = T)
 ```
 

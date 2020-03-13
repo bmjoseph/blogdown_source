@@ -210,6 +210,7 @@ flight_minute <- flights$CRS_DEP_TIME %% 100 # mod division operator
 hour(flights$FL_DATE) <- flight_hour
 # Add in the minute information
 minute(flights$FL_DATE) <- flight_minute
+flights <- flights %>% mutate(FL_DATE = as.POSIXct(FL_DATE))
 head(flights$FL_DATE)
 ```
 

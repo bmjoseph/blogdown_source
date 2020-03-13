@@ -1,0 +1,212 @@
+---
+title: Visualizing my Walking Data
+author: "Bailey Joseph"
+date: '2020-02-14'
+slug: visualizing-my-walking-data
+categories: []
+tags: []
+---
+
+```{r, include=F, echo=F}
+library(glue)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(ggtext)
+library(tidyr)
+library(readr)
+theme_clean <- function () { 
+    theme_bw(base_size = 11) +
+   theme(panel.grid.major.x=element_blank(), panel.grid.minor.x = element_blank(),
+           panel.grid.minor.y = element_blank(), panel.background = element_rect(colour = "#E1E1E1"),
+           panel.border = element_blank())
+}
+
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message = FALSE)
+```
+
+
+```{r}
+file_path <- "../../static/data/walking_data" 
+distance <- read_csv(glue("{file_path}/distance_data.csv"))
+```
+
+I recently (re) downloaded my Apple heath data going back to July 25th, 2016, when I bought my first iPhone. This covers my final three years of college and the roughly 8 months it's been since I graduated. I'd like to track my walking habits over time, paying specific attention to how things changed when I was in school, on break, or working.
+
+First, let's just look at the average amount I walked each day during each "period", or continuous chunk of time where I was either in school, on a school break, working, or waiting to start my next job.  We'll also look at the average of each "activity," averaging across chunks of time when I was roughly doing the same thing.  
+
+```{r}
+# First, I'll need to know the exact dates of Berkeley's academic calendar for each year. 
+berkeley_calendars <- data.frame(school_starts = c("2016-08-24", "2016-11-28", "2017-01-17", "2017-04-03", # 2016-17
+                                                   "2017-08-23", "2017-11-27", "2018-01-16", "2018-04-02", # 17-18
+                                                   "2018-08-22", "2018-11-26", "2019-01-22", "2019-04-01"), # 18-19
+                                 school_ends    = c("2016-11-22", "2016-12-16", "2017-03-24", "2017-05-12", # 2016-17
+                                                   "2017-11-21", "2017-12-15", "2018-03-23", "2018-05-11", # 17-18
+                                                   "2018-11-20", "2018-12-14", "2019-03-22", "2019-05-17"), # 18-19
+                                 semester      = c("Fall", "Spring", "Fall", "Spring", "Fall", "Spring"),
+                                 stringsAsFactors = FALSE) %>% 
+  mutate(school_starts = ymd(school_starts), school_ends = ymd(school_ends))
+
+
+job_calendars <- data.frame(start_date = c("2019-05-18", "2019-07-01", "2019-09-25", "2019-10-14"),
+                            end_date   = c("2019-06-30", "2019-09-24", "2019-10-13", as.character(Sys.Date())),
+                            Activity   = c("No Job", "Unblockable", "No Job", "Thunder"),
+                            stringsAsFactors = FALSE) %>% 
+  mutate(start_date = ymd(start_date), end_date = ymd(end_date))
+```
+
+
+```{r}
+distance <- distance %>%
+  merge(berkeley_calendars, by = NULL) %>% 
+  mutate(in_range = date <= school_ends & date >= school_starts) %>% 
+  group_by(date, day_miles, year, wday, month) %>% 
+  summarize(during_school = as.logical(max(in_range))) %>% 
+  ungroup()
+
+distance_cleaned <- distance %>% 
+  merge(job_calendars, by = NULL) %>% 
+  mutate(in_range = date >= start_date & date <= end_date) %>%
+  group_by(date, day_miles, year, wday, month, during_school, Activity) %>% 
+  summarize(frac_in = max(in_range)) %>% 
+  ungroup() %>% 
+  group_by(date, day_miles, year, wday, month, during_school) %>% 
+  mutate(total_activities = sum(frac_in),
+         graduated = total_activities == 1) %>% 
+  ungroup() %>% 
+  filter((!graduated & Activity == "No Job") | (graduated & frac_in == 1)) %>% 
+  mutate(Activity = case_when(graduated ~ Activity,
+                              during_school ~ "School",
+                              TRUE ~ "School Break")) %>% 
+  select(-frac_in, -total_activities, -during_school, -graduated)
+
+
+distance_summary <- distance_cleaned %>% 
+  mutate(period_change = Activity != lag(Activity)) %>% 
+  replace_na(list("period_change" = TRUE)) %>% 
+  mutate(curr_period = cumsum(period_change)) %>% 
+  group_by(Activity, curr_period) %>% 
+  mutate(avg_miles = mean(day_miles)) %>% 
+  group_by(Activity, curr_period, avg_miles, avg_miles) %>% 
+  summarize(min_date = min(date), max_date = max(date)) %>%
+  ungroup() %>% 
+  mutate(min_date = as.Date(min_date),
+         max_date = as.Date(max_date)) %>% 
+  mutate(time_width = as.numeric(max_date - min_date),
+         mid_date = min_date + time_width/2)
+
+```
+
+
+```{r}
+ distance_summary %>% 
+  mutate(Activity = factor(Activity, levels = c("School Break", "School", "No Job", "Unblockable", "Thunder"))) %>% 
+  ggplot(aes(x = mid_date, y = avg_miles, fill = Activity)) +
+    geom_rect(aes(xmin = min_date, xmax = max_date, ymin = 0, ymax = avg_miles)) +
+    # deep blue 003262 # gold FDB515 # golden gate ED4E33 # lawrence 00B0DA # soybean 859438
+    scale_fill_manual(values = c("#FDB515", "#003262", "#ED4E33", "#859438", "#00B0DA")) +
+    labs(title = "Average Miles Per Day in Different Periods",
+         x = "Date",
+         y = "Miles per Day") +
+    theme_clean()
+```
+ 
+My hunch was right -- I walked a lot during school. I would have expected the first two big blocks of school to be a little higher than they were because I moved closer to campus after sophomore year. Maybe I avoided taking extra trips home in the middle of the day. 
+ 
+ 
+```{r}
+distance_summary %>% 
+  group_by(Activity) %>% 
+  summarize(avg_miles = weighted.mean(avg_miles, time_width)) %>% 
+  ungroup() %>% 
+  arrange(avg_miles) %>% 
+  mutate(Activity = factor(Activity, levels = Activity)) %>% 
+  ggplot(aes(x = Activity, y = avg_miles, fill = Activity)) +
+    geom_histogram(stat = "identity") + 
+  # light blue: 00B0DA # deep blue 003262 # gold FDB515 # golden gate ED4E33  # soybean 859438
+  scale_fill_manual(values = c("#00B0DA", "#FDB515", "#ED4E33", "#859438", "#003262")) +
+    labs(title = "Average Miles per Day by Activity",
+         x = "Activity",
+         y = "Miles per Day") +
+    theme_clean() 
+```
+
+
+There was free all-day parking about a mile from my office at Unblockable (my first job out of college), so that explains the sustained uptick during those months. The "no job" period between Unblockable and the Thunder was really a couple weeks of scrambling to move my life to Oklahoma. So I'm not surprised to see relatively high numbers there. Finally, although the Thunder is the lowest period, I'd honestly have expected it to be even lower. I don't know where I'm getting over a mile and a half a day on average. Maybe my phone is picking up on me moving my leg at my desk -- I'll have to pay attention and follow up. 
+
+Next, let's look at how much I walked on each day of the week during each activity. This is also a chance to use the [ggtext package](https://github.com/wilkelab/ggtext), something I learned about from Claus Wilke at the [R Studio Conference (slides attached, just search for Claus)](https://github.com/EmilHvitfeldt/RStudioConf2020Slides) a few weeks ago that allows you to use colored titles in ggplot to avoid needing a legend! If you're trying to reproduce this (all [code is on my Github](https://github.com/bmjoseph/blogdown_source/tree/master/content/post), but you'll need to download and clean your own health data.. sorry.), you'll need to install the developer version of ggplot2 [in order to avoid a confusing error message](https://github.com/wilkelab/ggtext/issues/13).
+
+```{r}
+
+distance_cleaned %>% 
+  mutate(weekend = wday %in% c("Sat", "Sun")) %>%
+  mutate(wday = factor(wday, levels = c("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"))) %>% 
+  group_by(wday, weekend, Activity) %>% 
+  summarize(day_miles = median(day_miles)) %>% 
+  ungroup() %>% 
+  ggplot(aes(x = wday, y = day_miles, fill = weekend)) +
+    geom_col() +
+    facet_wrap(~Activity)+
+    scale_fill_manual(values = c("#003262", "#FDB515")) +
+    labs(title = glue("Distance Walked on <b style='color:#FDB515'>Weekends</b> and <b style='color:#003262'>Weekdays"),
+         x = "", y = "Miles per Day") +
+    theme_clean() +
+    theme(legend.position = "none",
+          plot.title = element_markdown())
+```
+
+This is what I'd expect! In school, I'd walk way more during the week to go to class. When I was out of school and not working, all the days were roughly the same. At Unblockable, I'd miss out on the 2 miles/day to and from my car and walked less over the weekend. And then finally with the Thunder, Sunday is the lowest day because I often take the day off and stay home.
+
+
+So what about the actual distribution in the data? So far we've only looked at the averages, but it'd be interesting to get a sense of the spread as well.  
+
+```{r}
+distance_cleaned %>% 
+  mutate(Activity = factor(Activity, levels = c("School Break", "School", "No Job", "Unblockable", "Thunder"))) %>% 
+  ggplot(aes(x = day_miles, fill = Activity)) +
+    geom_histogram() +
+    facet_wrap(~Activity)+
+    scale_fill_manual(values = c("#FDB515", "#003262", "#ED4E33", "#859438", "#00B0DA")) +
+    labs(title = "Distribution of Walking Distance by Activity",
+         x = "Miles per Day", y = "Count") +
+    theme_clean()
+
+```
+
+
+I like this, it tells its own story. School breaks are kind of bimodal -- either I did something during the day or mostly stayed home. School had the most data, a long range of outcomes, and a clear average of around 4. The times that I was between jobs were unique -- I had just graduated and then had to move to OKC. So there's no pattern there at all. Unblockable has a strong mode of about two and a half -- enough for me to go to the car and back and to Chipotle for lunch but little else. And there's a low mean with the Thunder, but also a really long tail. Some of those tail days were when I went to R Studio conference and walked around SF.
+
+
+```{r, eval = F, include = F}
+distance_cleaned %>% 
+    ggplot(aes(x = date, y = day_miles, fill = activity)) +
+    geom_col() +
+    #geom_point() +
+    theme_clean()
+
+distance %>% 
+  mutate(period_change = during_school != lag(during_school)) %>% 
+  replace_na(list("period_change" = TRUE)) %>% 
+  mutate(curr_period = cumsum(period_change)) %>% 
+  group_by(during_school, curr_period) %>% 
+  mutate(avg_miles = mean(day_miles)) %>% 
+  ggplot(aes(x = date, y = avg_miles, fill = during_school)) +
+    geom_col() +
+    theme_clean()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 

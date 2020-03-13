@@ -1,0 +1,294 @@
+---
+title: 'Step by Step: Visualizing a Year of Temperatures'
+author: ~
+date: '2020-03-12'
+slug: step-by-step-visualizing-a-year-of-temperatures
+categories: []
+tags: []
+---
+
+```{r setup, include = F, echo = F}
+file_path <- "../../static/data/weather" 
+
+theme_clean <- function() {
+  theme_bw(base_size = 11) +
+    theme(text = element_text(family = "Roboto"),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.grid.minor.y = element_blank(),
+          panel.background = element_rect(colour = "#E1E1E1"),
+          panel.border = element_blank())
+}
+
+library(scales)
+library(lubridate)
+library(readr)
+library(glue)
+library(dplyr)
+library(ggplot2)
+```
+
+
+```{r create all objects so that results can be called in a more informative order, eval = T, include = F}
+berkeley_weather <- read_csv(glue("{file_path}/berkeley_weather.csv"),
+                             col_names = c("abbrev", "station", "obs_date", "tmax", "tmin"),
+                             col_types = "cccdd", skip = 1) %>% 
+  mutate(obs_date = as.Date(obs_date)) %>% 
+  filter(station == "BERKELEY, CA US") %>% 
+  mutate(station = ifelse(station == "BERKELEY, CA US", "Berkeley", station))
+
+
+la_okc_weather <- read_csv(glue("{file_path}/la_okc_weather.csv"), col_names = c("abbrev", "station", "obs_date", "tmax", "tmin"), col_types = "cccdd", skip = 1) %>% 
+  mutate(obs_date = as.Date(obs_date)) %>% 
+  filter(station %in% c("U C L A, CA US", "OKLAHOMA CITY WILL ROGERS WORLD AIRPORT, OK US")) %>% 
+  mutate(station = case_when(station == "U C L A, CA US" ~ "Los Angeles",
+                             station == "OKLAHOMA CITY WILL ROGERS WORLD AIRPORT, OK US" ~ "Oklahoma City",
+                             TRUE ~ station))
+
+weather_data <- berkeley_weather %>% 
+  bind_rows(la_okc_weather) %>% 
+  filter(obs_date < as.Date("2020-03-01")) %>% 
+  mutate(location = case_when(obs_date <= as.Date("2019-05-22") ~ "Berkeley",
+                              obs_date <= as.Date("2019-10-10") ~ "Los Angeles",
+                              TRUE ~ "Oklahoma City")) %>% 
+  filter(station == location) %>%
+  mutate(obs_week = week(obs_date),
+         obs_year = year(obs_date)) %>% 
+  mutate(obs_week = ifelse(obs_week > 52, 52, obs_week)) 
+
+# Constants 
+
+# @Source: https://stackoverflow.com/questions/16596811/display-the-x-axis-on-ggplot-as-month-only-in-r
+weather_months <- seq.Date(as.Date("2019-03-01"), to = as.Date("2020-03-01"), by = "month")
+
+plot_labels <-  labs(title = "Weekly Average High and Low Temperatures",
+         x = "Date",
+         y = expression(Temperature ~~ ( degree * F)))
+         #y = "Temperature (F)")
+
+y_scale_temperature <- scale_y_continuous(breaks = c(0, 20, 32, 40, 50, 60, 75, 80))
+
+berkeley_start <- as.Date("2019-03-01")
+berkeley_end <- as.Date("2019-05-27")
+
+la_start <- as.Date("2019-05-28")
+la_end <- as.Date("2019-10-14")
+
+okc_start <- as.Date("2019-10-15")
+okc_end <- as.Date("2020-02-29")
+
+# Initial Plot, shows every day on its own
+
+daily_variation_plot <- weather_data %>% 
+  ggplot(aes(x = obs_date)) +
+    geom_ribbon(aes(ymin = tmin, ymax = tmax, fill = location)) +
+    plot_labels +
+    labs(title = "Daily Average High and Low Temperatures") +
+   theme_clean()
+
+# Second Plot, sharp for each week
+
+summarized_weather_data <- weather_data %>% 
+  group_by(obs_year, obs_week, location) %>% 
+  mutate(super_min = min(tmin),
+         tmin = mean(tmin),
+         super_max = max(tmax),
+         tmax = mean(tmax),
+         avg_date = median(obs_date)) %>%
+  ungroup() %>%
+  mutate(`Average Temp` = (tmin + tmax) / 2)
+
+weekly_sharp_ribbon_plot <- summarized_weather_data %>% 
+  ggplot(aes(x = avg_date)) +
+    geom_ribbon(aes(ymin = tmin, ymax = tmax, fill = location)) +
+    plot_labels +
+   theme_clean()
+
+# Third Plot, flat for each week 
+
+weekly_flat_ribbon_plot <- summarized_weather_data %>% 
+  ggplot(aes(x = obs_date)) +
+    geom_ribbon(aes(ymin = tmin, ymax = tmax, fill = location)) +
+    scale_x_date(breaks = weather_months, labels = date_format("%b")) +
+    y_scale_temperature +
+    plot_labels +
+    labs(x = "Month") +
+   theme_clean()
+
+# Fourth Plot, colored by temperature now
+
+# @Source: https://stackoverflow.com/questions/27189453/shade-fill-or-color-area-under-density-curve-by-quantile
+color_by_avg_temperature_plot <-  summarized_weather_data %>% 
+  ggplot(aes(x = obs_date, ymin = tmin, ymax = tmax, fill = `Average Temp`))
+
+for (iter_date in summarized_weather_data$obs_date) {
+  color_by_avg_temperature_plot <- color_by_avg_temperature_plot +
+    geom_rect(data = summarized_weather_data %>%
+                       filter(obs_date == iter_date),
+              aes(xmin = obs_date, xmax = obs_date + days(1)))
+}
+
+annotation_df_helper <- data.frame(obs_date = as.Date("2019-12-13"), tmin = 44, tmax = 44, `Average Temp` = 44, check.names = F)
+
+curves_and_annotations <- list(geom_curve(data = annotation_df_helper, x = berkeley_start, xend = berkeley_end, y = 43, yend = 43, curvature = .3),
+  annotate("text", x = as.Date("2019-04-01"), y = 38, label = "Berkeley"),
+  geom_curve(data = annotation_df_helper, x = la_start, xend = la_end, y = 80, yend = 80, curvature = -.3),
+  annotate("text", x = as.Date("2019-07-20"), y = 87, label = "Los Angeles"),
+  geom_curve(data = annotation_df_helper, x = okc_start, xend = okc_end - days(3), y = 29, yend = 29, curvature = .3),
+  annotate("text", x = as.Date("2019-12-30"), y = 22, label = "Oklahoma City"))
+
+color_by_avg_temperature_plot <- color_by_avg_temperature_plot +
+  scale_x_date(breaks = weather_months, labels = date_format("%b")) +
+  y_scale_temperature +
+  plot_labels +
+  labs(x = "Month") +
+  theme_clean() +
+  scale_fill_gradient2(low = "light blue", mid = "light grey", high = muted("red"), midpoint = 55) 
+
+# Fifth Plot, Final Version
+curves_and_annotations_for_bars <- list(geom_curve(data = annotation_df_helper, x = berkeley_start, xend = berkeley_end, y = 43, yend = 43, curvature = .3),
+  annotate("text", x = as.Date("2019-04-05"), y = 37, label = "Berkeley"),
+  geom_curve(data = annotation_df_helper, x = la_start, xend = la_end, y = 80, yend = 80, curvature = -.3),
+  annotate("text", x = as.Date("2019-07-20"), y = 89, label = "Los Angeles"),
+  geom_curve(data = annotation_df_helper, x = okc_start, xend = okc_end - days(3), y = 29, yend = 29, curvature = .3),
+  annotate("text", x = as.Date("2019-12-28"), y = 20, label = "Oklahoma City"))
+
+
+final_cartesian_weather_plot <- color_by_avg_temperature_plot + 
+  geom_segment(aes(x = avg_date, xend = avg_date, y = super_min, yend = tmin),
+               color = "light grey", size = .2) +
+  geom_segment(aes(x = avg_date, xend = avg_date, y = tmax, yend = super_max),
+               color = "light grey", size = .1, alpha = .5) +
+  curves_and_annotations_for_bars
+
+```
+
+# Introduction   
+
+
+The clocks just sprang forward and it's finally getting warm in Oklahoma! I was thinking about how different the weather's been here compared to Berkeley (where I was a year ago) and Los Angeles (where I've lived for most of my life). Specifically, I feel like I've experienced a lot of different weather this year, and wanted to plot it. This will be a step by step look through my thought process as I designed the plot you see below.  
+
+```{r, echo = F}
+final_cartesian_weather_plot
+```
+
+# Data Prep  
+
+The first and least fun step is in getting the data. I had a harder than expected time downloading the daily high and low temperature for different locations. I was eventually able to do it through [this helpful government site](https://www.ncdc.noaa.gov/cdo-web/search). If you want to reproduce these results but don't want to go to the trouble of downloading your own data, [you can get it on my Github here.](https://github.com/bmjoseph/blogdown_source/tree/master/content/post). 
+
+
+The next step is in cleaning the data. The government data was in pretty good shape, but failed to parse unless I specified the column types. Readr defaulted to thinking that the tmax and tmin columns were logical and then didn't understand values like 75. The only other steps were skipping the header row because I wanted to use my own column names and filtering for the one specific station I was most interested in. I won't include it here, but I did something similar for the LA and OKC weather data, except this time I was smart enough to download them together as one csv. [Code is here](https://github.com/bmjoseph/blogdown_source/tree/master/content/post)
+
+```{r, eval = F}
+berkeley_weather <- read_csv(glue("{file_path}/berkeley_weather.csv"),
+                             col_names = c("abbrev", "station", "obs_date", "tmax", "tmin"),
+                             col_types = "cccdd", skip = 1) %>% 
+  mutate(obs_date = as.Date(obs_date)) %>% 
+  filter(station == "BERKELEY, CA US") %>% 
+  mutate(station = ifelse(station == "BERKELEY, CA US", "Berkeley", station))
+```
+
+```{r, include = F, eval = F}
+la_okc_weather <- read_csv(glue("{file_path}/la_okc_weather.csv"), col_names = c("abbrev", "station", "obs_date", "tmax", "tmin"), col_types = "cccdd", skip = 1) %>% 
+  mutate(obs_date = as.Date(obs_date)) %>% 
+  filter(station %in% c("U C L A, CA US", "OKLAHOMA CITY WILL ROGERS WORLD AIRPORT, OK US")) %>% 
+  mutate(station = case_when(station == "U C L A, CA US" ~ "Los Angeles",
+                             station == "OKLAHOMA CITY WILL ROGERS WORLD AIRPORT, OK US" ~ "Oklahoma City",
+                             TRUE ~ station))
+```
+
+Once the data was in a tidy format, I needed to combine it and add a column matching the city I was in each day, not accounting for vacations or any work travel.  
+
+```{r, eval = F}
+weather_data <- berkeley_weather %>% 
+  bind_rows(la_okc_weather) %>% 
+  filter(obs_date < as.Date("2020-03-01")) %>% 
+  mutate(location = case_when(obs_date <= as.Date("2019-05-22") ~ "Berkeley",
+                              obs_date <= as.Date("2019-10-10") ~ "Los Angeles",
+                              TRUE ~ "Oklahoma City")) %>% 
+  filter(station == location) %>%
+  mutate(obs_week = week(obs_date),
+         obs_year = year(obs_date)) %>% 
+  mutate(obs_week = ifelse(obs_week > 52, 52, obs_week)) 
+```
+
+Great, it's time to start plotting! I'm not going to show the code for each visual. I'll focus on my thought process instead.  
+
+# Visualization  
+
+## Exploring    
+
+So my first idea for a plot is pretty simple -- what was the high and low temperature each day? I basically wanted one rectangle per day spanning from the daily low to the daily high. At this stage I decided to use a ribbon plot to seamlessly move from one day to the next. I also colored by location to help highlight any clear differences from that dimension.   
+
+```{r, echo = F}
+daily_variation_plot
+```
+
+I was actually pretty happy with this plot. Already we can see that LA has a nice peak in the summer, that OKC has the potential to get pretty cold (relative to what I'm used to at least) and has far more variation than the other two cities.  
+
+With that said, there are some clear ways we can improve this plot. At the moment it's too jumpy, especially in the OKC section. My next move was to make a version of the weather data that was summarized on a weekly level. The new "min" and "max" temperatures are the average min and max throughout the days of the particular week.  
+
+```{r, echo = F}
+weekly_sharp_ribbon_plot
+```
+
+This one is more visually pleasing to me, but now has a major problem that was really just my error. The values are supposed to be constant throughout the week, but you can see that there are still sharp points. I set x to the middle day of each week, so the ribbon plot moves from one week to the next in a linear fashion. The next version of the plot will clean this up. 
+
+It's also time to improve the axes by adding information. I'm going to specify the y-axis breaks to be some particular temperatures that cover the range and hit more interesting numbers. For the x-axis, I'm going to drop the year (in general I'd say that's not a very good idea, but this project is pretty specific and I don't want it. The change from Berkeley to LA to OKC is going to clue me in.) and add a label for every month.  
+
+```{r, echo = F}
+weekly_flat_ribbon_plot
+```
+
+I think this is much better. The flat weeks are now faithful to our intentions and we can easily see that aside from one July outlier, the second half of August and first half of September was the hottest part of the LA summer, and the only part where the weekly average high was over 80. Also, there've been quite a few Oklahoma weeks with average lows less than 32 degrees, spanning from the very end of October to the very end of February.  
+
+## Coloring by Temperature  
+
+
+The next improvement is going to help the viewer focus in more on the temperature than the location. Color and temperature go together nicely and I think I can get away with using annotations to highlight the cities. At this point, I also got a tough error telling me I could no longer use ribbon plots because I couldn't have different colors in the same ribbon. [This Stack Overflow post](https://stackoverflow.com/questions/27189453/shade-fill-or-color-area-under-density-curve-by-quantile) led me to overcome it by iteratively adding colored rectangles to an empty plot. Like the person who answered the question, I don't feel good about using a for loop to add components to the plot. The plot is a bit bloated and takes longer to render than the others. But I do think it's a good lesson on thinking about when you should optimize your code and find the most elegant solution. In an early/fundamental/reusable stage -- definitely Near the end when you're making a one off plot? Probably not, unless you think it's likely to crop up in a more fundamental stage of a different project. In this case, I'm moving forward and accepting the bloat. Big credit to the original poster who found this workaround.  
+
+```{r, echo = F}
+color_by_avg_temperature_plot + curves_and_annotations
+```
+
+I really thought this was going to be the final version of the plot. I'm happy with it. The colors took some work, but I think the scale is smooth and find the new plot much more interesting and aesthetically pleasing. It clearly separates the three cities into medium (Berkeley), hot (LA), and cold (OKC) and draws attention to the most extreme weeks.  
+
+The last addition tells us the true range each week. As Taleb once said, an average temperature of 75 degrees doesn't do us much good if the reality alternates between 25 and 125. I also wanted to bring back some idea of the daily variation from the very first plot. So I'm going to add in grey "range" lines showing each week's true min and max temperature.  
+
+
+```{r, echo = F}
+final_cartesian_weather_plot
+```
+
+This shows us that Berkeley and LA basically never have cold days. There were two weeks where Berkeley's lows hit the 30s and the LA summer almost never hit a daily low less than 60. On the other hand, Oklahoma has crazy variation. There was a week in November that went below freezing and above 75 and a couple others that went well below 20 but fell just short of 75.  
+
+## Bonus  
+
+One last cool graph for making it all the way here. I tossed the last graph into a polar coordinates and removed almost every plot element. March 2019 is at the top and the year progresses clockwise.  
+
+```{r, echo = F}
+color_by_avg_temperature_plot + 
+  #geom_segment(aes(x = avg_date, xend = avg_date, y = super_min, yend = tmin),
+  #             color = "light grey", size = .2) +
+  #geom_segment(aes(x = avg_date, xend = avg_date, y = tmax, yend = super_max),
+  #             color = "light grey", size = .1, alpha = .5) +
+    # annotate("text", x = berkeley_start, y = 33, label = expression(32 * degree * F), size = 3) +
+    # annotate("text", x = berkeley_start, y = 33, label = expression(32 * degree * F), size = 3) +
+    # annotate("text", x = berkeley_start, y = 33, label = expression(32 * degree * F), size = 3) +
+    labs(x = "", y = "", title = "") +
+    coord_polar() +
+    theme_void() +
+    theme(legend.position = "none")
+```
+
+
+
+
+
+
+
+
+
+
+
+
