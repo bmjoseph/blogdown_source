@@ -1,0 +1,196 @@
+---
+title: Setting the Line vs Choosing the Side
+author: ~
+date: '2020-03-27'
+slug: setting-the-line-vs-choosing-the-side
+categories: []
+tags: []
+---
+```{r, include=F, echo=F}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message = FALSE)
+```
+
+
+```{r}
+library(tidyverse)
+library(reshape2)
+```
+
+Your friend comes up to you and asks if you want to bet over/under on something, say, the number of words in the first Harry Potter book. You're always in for a bet, so he sets the line at 100,000 words and asks you to pick a side. This is a fair bet, right? 
+
+Assuming that your friend did not set the line exactly right and thus instantly win, the first thing to realize is that this cannot possibly be unfair in favor of your friend. Even if you have no idea and guess randomly, you shouldn't ever have less than 50% chance to win. This is somewhat clear if your friend's lines are unbiased, because then the real value will be on each side of the line 50% of the time. However, even if he's biased in an unknown direction, you still have at least a 50% chance. The guess is really then just which direction he's biased towards, and there's no reason you'd get that wrong more than half the time.  
+
+But will your guess be better than 50/50 random? Of course, it could be in your favor. At the extreme, you'd win 100% if you'd recently counted all the words and know the exact value. If you've read the series several times while your friend has only ever watched the movie, it's pretty natural to assume that you'll be somewhere between 50 and 100% to win.  
+
+Okay, but surely the bet is fair if you and your friend have equal information. Right? Suppose that you're both going to be correct on average (the book has 76944 words according to [this site](https://wordcounter.io/blog/how-many-words-are-in-harry-potter/)), and your beliefs about the exact number will be drawn from the same normal distribution centered on the actual answer. You each have a 50% chance for your belief to be closer to the real value. 
+
+If you'd like, stop and try to figure out the probability that you win. In the meantime, enjoy this plot of Harry Potter books (all word count data from the site linked above, don't try to collect any money from me if my lines are wrong...) acting as a spoiler tag for the solution.  
+
+```{r}
+theme_clean <- function() {
+  theme_bw(base_size = 11) +
+    theme(text = element_text(family = "Roboto"),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.grid.minor.y = element_blank(),
+          panel.background = element_rect(colour = "#E1E1E1"),
+          panel.border = element_blank())
+}
+
+data.frame(title = c("Sorcerer's Stone", "Chamber of Secrets", "Prisoner of Azkaban",
+                     "Goblet of Fire", "Order of the Phoenix", "Half Blood Prince", "Deathly Hallows"),
+           words = c(76944, 85141, 107253, 190637, 257045, 168923, 198227)) %>% 
+  mutate(title = paste("Harry Potter and the", title)) %>% 
+  mutate(title = factor(title, levels = rev(title)),
+         book_num = 1:7) %>% 
+  mutate(cumulative_words = cumsum(words),
+         book_mid_words = cumulative_words - words/2) %>% 
+  ggplot(aes(x = 1, y = words, fill = title)) +
+    geom_col() +
+    geom_text(aes(label = title, y = book_mid_words), angle = 270, size = 4) +
+    geom_text(aes(label = book_num, y = book_mid_words), x = 1.42, size = 5) +
+    # Divider between the book number and the title
+    geom_segment(x = 1.39, xend = 1.39, y = 0, yend =1084170 ) +
+    # Dividers between the books and on either end
+    geom_segment(x = .55, xend = 1.45, y = 0, yend = 0) +
+    geom_segment(x = .55, xend = 1.45, y = 76944, yend = 76944) +
+    geom_segment(x = .55, xend = 1.45, y = 162085, yend = 162085) +
+    geom_segment(x = .55, xend = 1.45, y = 269338, yend = 269338) +
+    geom_segment(x = .55, xend = 1.45, y = 459975, yend = 459975) +
+    geom_segment(x = .55, xend = 1.45, y = 717020, yend = 717020) +
+    geom_segment(x = .55, xend = 1.45, y = 885943, yend = 885943) +
+    geom_segment(x = .55, xend = 1.45, y = 1084170, yend = 1084170) +
+    # Top and bottom border
+    geom_segment(x = 1.45, xend = 1.45, y = 0, yend = 1084170) +
+    geom_segment(x = .55, xend = .55, y = 0, yend = 1084170) +
+    coord_flip() +
+    
+  # Old book 5, darker: "#02509f"
+    scale_fill_manual(values = rev(c("#f39b89", "#016c6a", "#f77e33", "#bd5298", "#3975a3", "#4eaa4b", "#e77b56"))) +
+    theme_void() +
+    theme(legend.position = "none",
+          text = element_text(family = "Roboto"))
+    
+
+```
+
+Okay, let's think about you and your friend's possible beleifs and what needs to happen for you to lose the bet:  
+
+1) If you happen to fall on opposite sides of the truth (your friend sets the line at 100,000 and you think it's 50,000), you're guaranteed to win, becuase you'll take the under (or over, in the reverse). This will happen half the time. 
+
+2) If you're on the same side of the truth (both believe too high or too low), you'll win as long as you're less wrong than your friend. Because you have the same distribution, it's just 50/50 who will be more wrong.  
+
+Putting these together, we have:  
+
+$\begin{aligned}
+P(\text{You win}) &= P(\text{different sides}) + P(\text{same side})*P(\text{You're less wrong}) \\
+&= .5 +.5(.5) \\
+&= .75
+\end{aligned}$
+
+
+Let's add one last layer of compliation. What if you and your friend draw your beliefs from normal distributions that have different variances? 
+
+The first part of the equation doesn't change. You still have a 50% chance to come down on opposite sides of the truth and you'll still win every time if that happens. But the second part *does* change -- who's more wrong is no longer 50/50 if the variances are different. To see why, assume that you're both overestimating, but your variance is now only 1 word (don't worry about the fact that words are discrete, the Harry Potter example is just to make things concrete.) If you guess too high, it's probably only by a word or so. If your friend has a standard deviation of 1000, he'd have to get incredibly lucky to be off by only a single word.  
+
+Let's follow how your odds of winning change with the ratio of your standard deviations. The math is a little harder here (See [this Stack Exchange post](https://math.stackexchange.com/questions/803421/probability-that-one-folded-normal-is-bigger-than-another). One guy says it's doable but difficult and provides no crumbs towards a solution. The other guy provides an incorrect solution, as it always returns .5 if the means are equal.), so let's do a simulation:  
+
+```{r}
+test_p2_odds <- function(p1_var = 1, p2_var = 1, p1_bias = 0, p2_bias = 0, trials = 1000) {
+  
+  line <- rnorm(trials, p1_bias, p1_var)
+  p2_obs <- rnorm(trials, p2_bias, p2_var)
+  
+  return(mean((sign(p2_obs) != sign(line)) | (abs(p2_obs) < abs(line))))
+  
+}
+
+p2_advantages_varied <- function(p1_vars, p2_var = 1, p1_bias = 0, p2_bias = 0, trials_each = 1000, random_seed = 13) {
+  
+  if (random_seed) {
+    set.seed(random_seed)
+  }
+  
+  advantages = vector(length = length(p1_vars))
+  
+  for (i in 1:length(p1_vars)) {
+    advantages[i] <- test_p2_odds(p1_vars[i], p2_var, p1_bias, p2_bias, trials_each)
+  }
+  return(data.frame(p1_var = p1_vars, p2_winprob = advantages))
+}
+
+p1_vars_to_test <- c(seq(.01, 2, .01), seq(2.1, 4, .1), 5:10)
+p2_adv <- p2_advantages_varied(p1_vars_to_test, trials_each = 10000)
+
+
+
+p2_adv %>% 
+  ggplot(aes(x = p1_var, y = p2_winprob)) +
+    geom_line(size = 1.3) +
+    theme_clean() +
+    scale_y_continuous(breaks = seq(0, 1, .1), labels = seq(0, 1, .1)) +
+    coord_cartesian(ylim = c(.5, 1)) +
+    labs(title = "Win Probability under Non Equal SDs",
+         x = "Ratio of your Friend's SD to Yours",
+         y = "Your Win Probability")
+```
+
+If your friend has almost no variance, you can only win through method 1 above. As your friend's variance increases, your win probability tends toward 1.  
+
+Let's see if we can derive a formula for this relationship. Let's start with trying to calculate the value for a single ratio -- 2. Let's plot these distributions and build some intuition:  
+
+```{r}
+data.frame(belief = seq(-6, 6, length.out = 10000)) %>% 
+  ggplot(aes(x = belief)) +
+    stat_function(fun = dnorm, geom = "area", aes(fill = "You"), alpha = .5) +
+    stat_function(fun = dnorm, geom = "area", args = list(0, 2), aes(fill = "Friend"), alpha = .5) +
+    scale_fill_manual("Distribution", values = c("#00B0DA", "#ED4E33")) +
+    labs(title = "Belief Distributions with a SD Ratio of 2",
+         x = "Error",
+         y = "Density") +
+    theme_clean()
+```
+
+In order for you to win, you need to avoid being off by more and off in the same direction as your friend. This is symmetric, so let's just look at the positive side and then multiply by 2 at the end.   
+ 
+Therefore, our win probability is 2 times the integral from 0 to infinity of our density function times .5 plus your friend's CDF. Pick a positive value for your belief, and then calculate the chance your friend's value is either negative or larger than your belief.
+
+Quickly visualizing this, here's the same plot as before, but with the empirical win probabilities replaced with points and the (estimated) integral plotted as a line:  
+
+```{r}
+get_over_under_winprob <- function(friend_sd, bin_width = .0001) {
+  possible_vals <- seq(0, 5, bin_width)
+  p_you_get_val = bin_width*dnorm(possible_vals)
+  p_friend_negative_or_larger <- .5 + pnorm(possible_vals, sd = friend_sd, lower.tail = F)
+  
+  return(2*sum(p_you_get_val * p_friend_negative_or_larger))
+}
+
+get_over_under_winprob <- Vectorize(get_over_under_winprob, vectorize.args = "friend_sd")
+
+actual_winprobs <- get_over_under_winprob(p1_vars_to_test, .0001)
+
+p2_adv %>% 
+  mutate(actual_winprob = actual_winprobs) %>% 
+  ggplot(aes(x = p1_var, y = p2_winprob)) +
+    geom_point(size = 1.3, alpha = .2) +
+    geom_line(aes(y = actual_winprob)) +
+    theme_clean() +
+    scale_y_continuous(breaks = seq(0, 1, .1), labels = seq(0, 1, .1)) +
+    coord_cartesian(ylim = c(.5, 1)) +
+    labs(title = "Win Probability under Non Equal SDs",
+         x = "Ratio of your Friend's SD to Yours",
+         y = "Your Win Probability")
+
+```
+
+In theory, you can win money by betting based on this curve. Of course, theory and practice are only the same in theory. Neither you nor your friend are going to be unbiased, you're not drawing beliefs from a normal distribution, and you have no idea how much error to expect. So like a lot of normal based models, this isn't very practically useful. 
+
+
+
+
+
+
+
+
+
