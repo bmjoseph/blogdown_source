@@ -24,7 +24,7 @@ But will your guess be better than 50/50 random? Of course, it could be in your 
 
 Okay, but surely the bet is fair if you and your friend have equal information. Right? Suppose that you're both going to be correct on average (the book has 76944 words according to [this site](https://wordcounter.io/blog/how-many-words-are-in-harry-potter/)), and your beliefs about the exact number will be drawn from the same normal distribution centered on the actual answer. You each have a 50% chance for your belief to be closer to the real value. 
 
-If you'd like, stop and try to figure out the probability that you win. In the meantime, enjoy this plot of Harry Potter books (all word count data from the site linked above, don't try to collect any money from me if my lines are wrong...) acting as a spoiler tag for the solution.  
+If you'd like, stop and try to figure out the probability that you win. In the meantime, enjoy this plot of Harry Potter books acting as a spoiler tag for the solution. (All word count data from the site linked above, don't try to collect any money from me if my lines are wrong...)  
 
 ```{r}
 theme_clean <- function() {
@@ -74,9 +74,9 @@ data.frame(title = c("Sorcerer's Stone", "Chamber of Secrets", "Prisoner of Azka
 
 ```
 
-Okay, let's think about you and your friend's possible beleifs and what needs to happen for you to lose the bet:  
+Okay, let's think about you and your friend's possible beliefs and what needs to happen for you to lose the bet:  
 
-1) If you happen to fall on opposite sides of the truth (your friend sets the line at 100,000 and you think it's 50,000), you're guaranteed to win, becuase you'll take the under (or over, in the reverse). This will happen half the time. 
+1) If you happen to fall on opposite sides of the truth (your friend sets the line at 100,000 and you think it's 50,000), you're guaranteed to win, because you'll take the under (or over, in the reverse). This will happen half the time. 
 
 2) If you're on the same side of the truth (both believe too high or too low), you'll win as long as you're less wrong than your friend. Because you have the same distribution, it's just 50/50 who will be more wrong.  
 
@@ -89,11 +89,11 @@ P(\text{You win}) &= P(\text{different sides}) + P(\text{same side})*P(\text{You
 \end{aligned}$
 
 
-Let's add one last layer of compliation. What if you and your friend draw your beliefs from normal distributions that have different variances? 
+Let's add one last layer of complication. What if you and your friend draw your beliefs from normal distributions that have different variances? 
 
 The first part of the equation doesn't change. You still have a 50% chance to come down on opposite sides of the truth and you'll still win every time if that happens. But the second part *does* change -- who's more wrong is no longer 50/50 if the variances are different. To see why, assume that you're both overestimating, but your variance is now only 1 word (don't worry about the fact that words are discrete, the Harry Potter example is just to make things concrete.) If you guess too high, it's probably only by a word or so. If your friend has a standard deviation of 1000, he'd have to get incredibly lucky to be off by only a single word.  
 
-Let's follow how your odds of winning change with the ratio of your standard deviations. The math is a little harder here (See [this Stack Exchange post](https://math.stackexchange.com/questions/803421/probability-that-one-folded-normal-is-bigger-than-another). One guy says it's doable but difficult and provides no crumbs towards a solution. The other guy provides an incorrect solution, as it always returns .5 if the means are equal.), so let's do a simulation:  
+Let's follow how your odds of winning change with the ratio of your standard deviations. The math is a little harder here, so let's do a simulation. (See [this Stack Exchange post](https://math.stackexchange.com/questions/803421/probability-that-one-folded-normal-is-bigger-than-another). One guy says it's doable but difficult and provides no crumbs towards a solution. The other guy provides an incorrect solution, as it always returns .5 if the means are equal.)  
 
 ```{r}
 test_p2_odds <- function(p1_var = 1, p2_var = 1, p1_bias = 0, p2_bias = 0, trials = 1000) {
