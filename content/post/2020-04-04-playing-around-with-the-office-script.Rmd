@@ -1,0 +1,149 @@
+---
+title: Playing Around with The Office Script
+author: ~
+date: '2020-04-04'
+slug: playing-around-with-the-office-script
+categories: []
+tags: []
+---
+
+```{r}
+file_path <- "../../static/data/office" 
+
+theme_clean <- function() {
+  theme_bw(base_size = 11) +
+    theme(text = element_text(family = "Roboto"),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.grid.minor.y = element_blank(),
+          panel.background = element_rect(colour = "#E1E1E1"),
+          panel.border = element_blank())
+}
+
+library(scales)
+library(lubridate)
+library(readr)
+library(glue)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+```
+
+```{r}
+# Read in the data
+script <- read_csv(glue("{file_path}/office_script.csv"))
+
+# Remove things in brackets, they're not spoken words
+script <- script %>%
+  mutate(line_text = gsub("\\[.*?\\]", "", line_text)) %>%
+  # Remove the deleted scenes
+  filter(!deleted) %>%
+  select(-deleted)
+```
+
+```{r}
+# Fix some inconsistencies in the names
+script <- script %>%
+  mutate(speaker = case_when(speaker == "David" ~ "David Wallace",
+                             speaker == "Deangelo" ~ "DeAngelo",
+                             speaker == "Ryan Howard" ~ "Ryan",
+                             speaker == "Robert" ~ "Robert California",
+                             speaker == "Darly" ~ "Darryl",
+                             speaker == "Bob" ~ "Bob Vance",
+                             speaker %in% c("Michel", "Micahel", "Michae",
+                                            "Michael [on phone]", "M ichael",
+                                            "Micael", "MIchael", "Michal", "Mihael", "Miichael" ) ~ "Michael",
+                             T ~ speaker))
+
+remove_text_punc <- function(string) {
+  string %>% str_replace_all(pattern = "[\n-]+|\\s+",
+                      replacement = " ") %>%
+      str_replace_all(pattern = "[\\.,!/?():]",
+                      replacement = "") %>%
+      tolower()
+}
+
+
+
+# Add on speaker group, for merging later
+script <- script %>%
+  mutate(unique_speaker_order = cumsum(c(TRUE, speaker[-1] != speaker[-length(speaker)])))
+
+
+# Make a somewhat degenerate data frame, but that has the 
+# lines someone says without someone else interrupring 
+# All considered to be the same line
+
+script_grouped_lines <- aggregate(line_text ~ speaker + unique_speaker_order, transform(script, 
+    unique_speaker_order = cumsum(c(TRUE, speaker[-1] != speaker[-length(speaker)]))), 
+           FUN = paste, collapse= " ")
+
+# Merge to collapse rows of the same speaker
+script <- script %>%
+  select(-line_text, - speaker) %>%
+  group_by(unique_speaker_order) %>%
+    slice(1) %>%
+  ungroup() %>%
+  merge(script_grouped_lines %>%
+          select(speaker, line_text, unique_speaker_order),
+        by = "unique_speaker_order") %>%
+  select(-unique_speaker_order)
+
+# Remove punctuation, make things lowercase
+script <- script %>%
+  mutate(line_text = remove_text_punc(line_text))
+
+# Add in the number of words per line
+
+script <- script %>% 
+  mutate(nwords = str_count(line_text, " ") + 1)
+
+```
+
+```{r}
+script %>% 
+  filter(is.na(nwords))
+```
+
+Once we've read in and cleaned the data, we're ready to look at the number of lines per character:
+
+```{r}
+
+speaker_line_ranking <- script %>%
+  group_by(speaker) %>%
+  summarize(n_lines = sum(nwords)) %>%
+  arrange(-n_lines) %>%
+  filter(n_lines > 1000) %>%
+  ungroup() %>%
+  pull(speaker)
+
+script %>%
+  group_by(speaker) %>%
+  summarize(n_lines = sum(nwords)) %>%
+  mutate(more_than_100 = n_lines > 1000,
+         speaker_adj = ifelse(more_than_100, speaker, "Other")) %>%
+  ungroup() %>%
+  group_by(speaker_adj) %>%
+  summarize(n_lines = sum(n_lines)) %>%
+  arrange(-n_lines) %>%
+  mutate(speaker = factor(speaker_adj, levels = c(speaker_line_ranking, "Other"))) %>%
+  ggplot(aes(x = speaker, y = n_lines)) +
+    geom_bar(stat = "identity") +
+    labs(title = "Total Lines by Character",
+         x = "Speaker",
+         y = "Number of Lines") +
+    theme_clean() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+
+
+
+
+
+
+
+
+
+
