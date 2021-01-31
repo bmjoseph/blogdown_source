@@ -3,6 +3,9 @@ title: Searching for the Optimal Nine Card Strategy
 author: Bailey Joseph and Dan Rozovsky
 date: '2021-01-30'
 slug: searching-for-the-optimal-nine-card-strategy
+output:
+  blogdown::html_page:
+    toc: true
 categories: []
 tags: []
 ---
@@ -236,7 +239,7 @@ We now look to see if being a little more aggressive with what we allow into our
 
 To test the aggressive draw and discard approaches, we held the knock values constant between the two players and ran through all knock values between 5 and 60 (incrementing by 5 as before). The results are below:
 
-![](../../static/data/ninecard/conservative_vs_aggressive.png)
+<img src="/images/conservative_vs_aggressive.png" alt="Girl in a jacket" style="width:800px;height:480px;">
 
 Personally, these results were very surprising. Anecdotally when I play Nine Card, I employ a strategy similar to this as I believe that picking up cards that can get me closer to a run or a set are more helpful than drawing some random card from the rest of the deck. The results indicate that this couldn't be further from the truth. Apart from when both players knock at absurdly high values (i.e. >= 50), the conservative strategy dominates the aggressive strategy. In particular, we can see that the knock value we found to be optimal in the conservative strategy (25) defeats this strategy by more than 10 points per round. 
 
@@ -305,7 +308,7 @@ turn_scores  %>%
                               #print(normalized)
                              # list(background = good_bad_pal(normalized), color = "black")
                               }),
-      `Count` =colDef(name = "", align = "right", width = 50),
+      `Count` =colDef(name = "", align = "right", width = 60),
      `count` =colDef(name = "Count", align = "left", width = 200,
                       cell = function(value) {
                         width <- paste0(value / max(turn_scores$Count) * 100, "%")
