@@ -6,6 +6,11 @@ slug: playing-around-with-the-office-script
 categories: []
 tags: []
 ---
+```{r, include=F, echo=F}
+knitr::opts_chunk$set(warning=FALSE, message = FALSE)
+```
+
+This post will be a little bit different from most, in that I'm going to show all of my code.  
 
 ```{r}
 file_path <- "../../static/data/office" 
@@ -136,10 +141,44 @@ script %>%
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
+Great, let's look at how the top 12 characters' (through Kelly on the graph above) prominence changed as the seasons went on. I'm going to show this two ways, once where every character gets their own scale, so that you can easily see changes in that character, and once where every character is on the same scale, so that it's easier to see the relative proportions.  
+
+```{r}
+# Season Level proportion of lines by character
+season_line_counts <- script %>%
+  group_by(season) %>%
+  summarize(season_lines = n()) %>%
+  merge(data.frame(speaker = speaker_line_ranking[1:12]))
 
 
+prevelance_by_season_plot <- script %>%
+  filter(speaker %in% speaker_line_ranking[1:12]) %>%
+  group_by(speaker, season) %>%
+  summarize(n_lines = n()) %>%
+  merge(season_line_counts, by = c("season", "speaker"), all.y = T) %>%
+  mutate(n_lines = ifelse(is.na(n_lines), 0, n_lines)) %>%
+  mutate(season_prop = n_lines/season_lines,
+         speaker = factor(speaker, levels = speaker_line_ranking)) %>%
+  ggplot(aes(x = season, y = season_prop)) +
+    geom_point() +
+    geom_line() +
+    scale_x_continuous(breaks = 1:9) +
+    labs(title = "Character Importance by Line Frequency over Time",
+         x = "Season", y = "Proportion of Lines") +
+    theme_clean()
 
+prevelance_by_season_plot +
+  facet_wrap(~speaker, scale= "free") 
+```
 
+```{r}
+prevelance_by_season_plot +
+  facet_wrap(~speaker) 
+```
+
+Michael's plot looks the same either way, but the second version makes it clear just how much he carried the early seasons of the show. Together, these plots show a kind of rise of most of the minor characters as the show moved away from, and eventually left out, Michael.  
+
+I'll have to come back to this, there's a lot more we can do with the script. 
 
 
 
